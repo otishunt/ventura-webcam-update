@@ -1,0 +1,86 @@
+# Pipeline configuration. Paths are relative to the repo root unless absolute.
+# Manifest handling matches meme-recorder/tools/build_manifest.py (checked 2026-11-10):
+# kind is meme | negative | free, looks_like is ;-separated, mp4_path is relative to data/.
+
+paths:
+  recorder_root: ../meme-recorder          # recorder folder (or its data/ folder)
+  manifest: ../meme-recorder/data/manifest.csv
+  mediapipe_models: models/mediapipe       # filled by scripts/download_mediapipe_models.sh
+  landmarks: work/landmarks                # one <clip_id>.npz per clip (L1 output)
+  labels: work/labels                      # clip_labels.csv + frame_labels.npz (L1 output)
+  features: work/features                  # cached per-frame feature arrays
+  runs: runs                               # experiment outputs
+
+classes:                                   # index order is fixed; no_meme must stay last
+  - success_fist
+  - arms_raised
+  - chill_guy
+  - point_at_self
+  - sleepy_squint
+  - pinch_grin
+  - timeout
+  - hands_on_head
+  - shrek_side_eye
+  - holding_laugh
+  - confused_tilt
+  - point_sideways
+  - no_meme
+
+manifest:
+  # The recorder writes kind = meme | negative | free (free prompt_id: free_behavior).
+  free_kinds: [free]
+  exclude_status: [rejected, qc_failed]   # build_manifest.py already drops these unless --all
+  expected_fps: 30
+
+extraction:
+  pose_model: pose_landmarker_full.task    # lite | full | heavy
+  num_hands: 2
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+  workers: 0                               # 0 = all CPU cores minus one
+
+labels:
+  method: motion            # motion (landmark-based onset/offset, falls back to shift) | shift
+  onset_delay_ms: 400       # shift method: pose starts this long after cue_on_ms
+  offset_delay_ms: 300      # shift method: pose ends this long after cue_off_ms
+  ignore_margin_ms: 150     # frames this close to an onset/offset get label -1 (ignored)
+  motion:
+    search_before_cue_ms: 100    # onset may not be earlier than cue_on - this
+    max_onset_after_cue_ms: 1200 # onset may not be later than cue_on + this
+    smooth_frames: 5
+    threshold_fraction: 0.5      # half-way between neutral baseline and peak deviation
+    min_peak_ratio: 2.0          # peak deviation must be >= this x baseline noise, else fall back
+
+windows:
+  length: 30                # frames (~1 s at 30 fps); prediction is for the window's LAST frame
+  train_stride: 2
+  free_clip_train_stride: 6 # free-behavior clips are long; subsample them more
+
+smoother:                   # hysteresis used for evaluation AND the live demo
+  on_threshold: 0.6
+  off_threshold: 0.4
+  on_frames: 4              # same meme for N consecutive frames before it is shown
+  off_frames: 3             # confidence below off_threshold for K frames before it is hidden
+
+m1:
+  arch: gru                 # gru | tcn
+  hidden: 128
+  layers: 2
+  dropout: 0.3
+  epochs: 40
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.0001
+  val_fraction: 0.15        # of training clips, grouped by clip, for early stopping
+  patience: 8
+  class_weight_power: 0.5   # loss weight = (1/freq)^power
+  augment: classic          # none | classic
+  aug:
+    flip_p: 0.5
+    noise_std: 0.03         # in standardized feature units
+    time_scale: [0.8, 1.25] # speed jitter (stand-in for frame-rate jitter)
+    feature_dropout_p: 0.1  # randomly zero a whole hand / face block
+
+split:
+  # Sessions reserved for the new-conditions test (L7 #2). Never used for training.
+  heldout_sessions: []

@@ -1,0 +1,11 @@
+# Pipeline dependencies (separate from the recorder app's environment).
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+pyyaml>=6
+matplotlib>=3.8
+tabulate>=0.9
+mediapipe>=0.10.20,<2          # 1.x has Linux aarch64 wheels (Grace Hopper nodes); 0.10.x does not
+opencv-contrib-python>=4.8,<5  # the recorder's QC needs OpenCV 4; keep the same pin to be safe
+torch>=2.2                     # install the CUDA build that matches the server, see README
+pytest>=8

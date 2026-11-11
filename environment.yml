@@ -1,0 +1,12 @@
+# conda env create -f environment.yml && conda activate memepose
+# Then install the CUDA build of torch that matches the server's driver, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+name: memepose
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - ffmpeg
+  - pip:
+      - -r requirements.txt
+      - -e .

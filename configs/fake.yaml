@@ -1,0 +1,12 @@
+# Pipeline on synthetic stand-in data (python -m memepose.fake). Only for testing the code.
+base: pipeline.yaml
+paths:
+  recorder_root: work/fake/meme-recorder
+  manifest: work/fake/meme-recorder/data/manifest.csv
+  landmarks: work/fake/landmarks
+  labels: work/fake/labels
+  features: work/fake/features
+  runs: work/fake/runs
+m1:
+  epochs: 12
+  patience: 4

@@ -1,0 +1,10 @@
+# NCSA Delta. Replace PROJ with your 4-letter project code (run `accounts` on Delta).
+# Videos and everything derived from them live on /work/hdd (the job I/O area), not in $HOME.
+base: pipeline.yaml
+paths:
+  recorder_root: /work/hdd/PROJ/meme-pose/meme-recorder
+  manifest: /work/hdd/PROJ/meme-pose/meme-recorder/data/manifest.csv
+  landmarks: /work/hdd/PROJ/meme-pose/work/landmarks
+  labels: /work/hdd/PROJ/meme-pose/work/labels
+  features: /work/hdd/PROJ/meme-pose/work/features
+  runs: /work/hdd/PROJ/meme-pose/runs

@@ -1,0 +1,18 @@
+# participant data and everything derived from it stays off git
+work/
+runs/
+models/
+data/
+*.npz
+*.npy
+*.mp4
+*.webm
+*.pt
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+.DS_Store
+
+logs/*
+!logs/.gitkeep
