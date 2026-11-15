@@ -48,6 +48,22 @@ if [ -z "${ADMIN_TOKEN:-}" ]; then
 fi
 export ADMIN_TOKEN
 
+# ---- Station name: prefixes new participant IDs (CA-P001) so recordings from several
+#      laptops can be merged later (tools/export_recordings.py -> tools/import_recordings.py)
+if [ -z "${MEME_STATION:-}" ]; then
+  if [ -s .station ]; then
+    MEME_STATION="$(cat .station)"
+  elif [ -t 0 ]; then
+    say "First run on this computer: give it a short name (letters/numbers, e.g. your initials)."
+    echo "New participant IDs will start with it (e.g. CA-P001) so laptops can be merged later."
+    read -r -p "Station name: " MEME_STATION
+    MEME_STATION="$(printf '%s' "$MEME_STATION" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9' | cut -c1-8)"
+    [ -n "$MEME_STATION" ] || fail "a station name is needed"
+    printf '%s\n' "$MEME_STATION" > .station
+  fi
+fi
+export MEME_STATION="${MEME_STATION:-}"
+
 # ---- Port: reuse a recorder already running here, otherwise find a free port
 is_recorder() { curl -fsS --max-time 2 "http://127.0.0.1:$1/api/protocol" 2>/dev/null | grep -q protocol_version; }
 port_free() { "$PY" -c "import socket,sys; s=socket.socket(); s.bind(('127.0.0.1', int(sys.argv[1])))" "$1" 2>/dev/null; }
@@ -86,6 +102,7 @@ URL="http://localhost:$PORT"
 say "Recorder running at $URL  (this computer only)"
 echo "  Admin dashboard: $URL/admin   token: $ADMIN_TOKEN"
 echo "  Data folder:     ${MEME_DATA_DIR:-$(pwd)/data}"
+echo "  Station:         ${MEME_STATION:-none (IDs P001...)}"
 echo "  Keep this window open while recording. Ctrl+C or closing the window stops it."
 open_page "$URL/"
 wait "$SERVER"

@@ -31,7 +31,7 @@ def main():
     args = ap.parse_args()
 
     rows = []
-    for pdir in sorted((DATA / "participants").glob("P*")):
+    for pdir in sorted((DATA / "participants").iterdir()):  # P001, CA-P001, ...
         pfile = pdir / "participant.json"
         if not pfile.exists():
             continue

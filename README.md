@@ -79,6 +79,10 @@ reachable only from the Mac it runs on.
   outfits, glasses and distances.
 - **Held-out sessions:** one session per person is recorded in conditions used nowhere
   else and kept as a test set.
+- **Several laptops:** teammates can record on their own laptops. Each laptop prefixes its
+  participant IDs (e.g. `CA-P001`), and recordings reach the main Mac as a checksummed zip,
+  by AirDrop or USB only, never through GitHub or a cloud drive. The import links each
+  person's sessions across laptops by their signed name.
 
 ### 2. Preprocessing
 

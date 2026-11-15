@@ -86,3 +86,6 @@ m1:
 split:
   # Sessions reserved for the new-conditions test (L7 #2). Never used for training.
   heldout_sessions: []
+  # Folds whose test person has fewer clips than this are still run and pooled, but left
+  # out of the fold mean/sd (a 6-clip fold makes the average meaningless).
+  min_test_clips: 20

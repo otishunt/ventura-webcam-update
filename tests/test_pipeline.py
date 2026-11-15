@@ -208,3 +208,18 @@ def test_resolve_mp4_rebases_foreign_absolute_paths(tmp_path):
     mac = "/Users/x/Desktop/DATA 4620 Final Project/meme-recorder/data/participants/P001/clips/a.mp4"
     assert resolve_mp4(mac, rec) == clip
     assert resolve_mp4(rel, tmp_path / "missing") == tmp_path / "missing/data" / rel
+
+
+def test_ablation_variants_and_m0_margin():
+    from memepose.ablate import VARIANTS, variant_config
+    from memepose.models.rules import RuleModel
+    cfg = load_config()
+    assert variant_config(cfg, "none")["m1"]["augment"] == "none"
+    v = variant_config(cfg, "no_dropout")["m1"]
+    assert v["augment"] == "classic" and v["aug"]["feature_dropout_p"] == 0.0
+    assert cfg["m1"]["aug"]["feature_dropout_p"] > 0  # base config untouched
+    assert set(VARIANTS) >= {"none", "full", "no_dropout", "no_flip"}
+    m = RuleModel(cfg.class_names)
+    m.no_meme_margin = 10.0  # huge margin -> always no_meme
+    F = np.zeros((5, len(__import__("memepose.features", fromlist=["x"]).feature_names())), np.float32)
+    assert (m.predict_proba(F).argmax(1) == cfg.no_meme_idx).all()
