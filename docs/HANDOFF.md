@@ -1,347 +1,239 @@
 # Handoff: Meme Pose Recognition with Synthetic Domain Randomization
 
-DATA 4620 final project · Team: Otis, Carson, Minh, Kevin · Last updated 2026-11-10 (decisions recorded, pipeline repo started)
+DATA 4620 final project · Otis, Carson, Minh, Kevin · **Updated 2026-11-15**
 
-Paste or attach this file at the start of a new chat. It covers the project
-goal, what already exists, the constraints, and a bottom-up system design to
-build next. Items marked **[DECIDE]** are open decisions for the team.
+This doc is for teammates picking up the project, and for starting a new chat with Claude
+(paste or attach this file first). The system overview with a diagram is in the
+[README](../README.md); exact commands are in the [RUNBOOK](RUNBOOK.md).
 
 ---
 
-## 1. Project in one paragraph
+## 1. The project in one paragraph
 
-A live webcam system that recognizes which meme a person is imitating (11
-memes plus "no meme") and replaces the camera feed with that meme's image. The
-research angle: training data can only come from the 4 team members, so we
-use generative models to make **synthetic, appearance-randomized versions**
-of our own clips. The synthetic clips vary age, gender, skin tone, hair,
-clothing, lighting, background and camera. The goal is a model that works on
-people who look nothing like us. The core experiment is whether
-generative domain randomization beats real data alone and beats classic
-augmentation.
+A live webcam system that recognizes which meme a person is imitating (11 memes plus
+"no meme") and swaps the camera feed for that meme's image. The research angle: our only
+training data is the four of us, so we use open-weight image-editing models to make
+appearance-randomized versions of our own recordings, varying skin tone, gender
+presentation, age, hair, clothing, background and lighting. The core experiment is whether
+this *generative domain randomization* beats real data alone and classic augmentation,
+tested on people the model never trained on.
 
-## 2. Hard constraints
+**Deadline:** mid-December (the end of fall semester). The proposal is done.
 
-- **Data:** only the 4 team members can be recorded. No outside participants.
-  Consent is covered because the subjects are the researchers themselves.
-- **Compute:** NCSA Delta, allocation `bjeg` (CSC 4888). The professor said (2026-11-15) we
-  can use as much as we need and request more, so budget is not the constraint; queue wait
-  is. Initial deposit: 200 GPU hours (A100-equivalent; an A40 hour costs 0.5) and 200 CPU
-  core-hours, shared with the class. It uses
-  Slurm, has x86_64 CPUs and no Docker (conda instead). Only A40s are used. Extraction,
-  labels, M0/M1 and prompt prototyping run on the M4 Mac for free; Delta does only bulk
-  frame generation and M2 training, from crops copied with Globus (never the videos).
-  Expected use: ~400–800 GPU SU with Qwen at full quality, so request more hours early.
-  The live demo runs on the Mac.
-- **Deadline:** about 5 weeks from 2026-11-10 (mid-December). The proposal is done.
-- **Run everything locally:** use open-weight models on our own GPUs. Our
-  consent promised videos are not sent to cloud services, so no hosted
-  LLM, VLM or video APIs on participant frames.
-- **Course rules:**
-  - The professor requires real data with known provenance, so evaluation
-    must be on real recordings. The professor **approved** synthetic augmentation of
-    our own real data.
-  - We must write and evaluate a good amount of our own code.
-  - We must show at least one prototype → evaluate → improve cycle.
-  - The proposal (3+ pages, prose, with a system diagram) needs these sections:
-    Introduction, Background, Data and Methods, Evaluation, Expected Outcomes,
-    and Ethical Implications.
+## 2. What you need to do (teammates)
 
-## 3. What already exists (recorder app)
+### Record more sessions: the most important task right now
+Each person needs **6 sessions: 5 regular plus 1 held-out**, each in *different* conditions.
+Variety is the only way four people can teach the model to cope with new rooms and lighting.
 
-Location on Otis's Mac: `~/Documents/GitHub/ventura-webcam-update/meme-recorder/` (moved into the
-pipeline repo on 2026-11-15; `data/` and other participant files are git-ignored)
+Recording progress, by person (IDs only; you know which one is yours):
 
-- **Stack:** FastAPI backend plus a plain HTML/JS frontend. Clips are
-  converted to 30 fps H.264 MP4 with ffmpeg. An automatic quality check uses
-  OpenCV and **must use OpenCV 4**: OpenCV 5 removed `CascadeClassifier`, and
-  `requirements.txt` pins `<5`.
-- **Run (local only):** double-click `meme-recorder/run_local.command`, or run
-  `./run_local.command`. It sets up `.venv` if needed, creates an admin token in
-  `.admin_token`, serves on 127.0.0.1 only and opens `http://localhost:8000`. No tunnel
-  is used anymore; the Cloudflare and Tailscale routes are retired.
-- **Flow:** Start → consent (consent version 1.4) → camera setup → randomized
-  prompts → review and redo → done. Participant IDs exist only behind the scenes.
-- **Protocol** (`config/memes.yaml`, version `2026.4`, 43 prompts per session):
-  - 11 memes × 3 repeats (2026.4 retired `success_fist` and `chill_guy` and added `pure_cinema`)
-  - 9 "no_meme" negatives × 1
-  - one 60-second free-behavior clip
-
-  The app rereads this file on every request, so edits take effect without a restart.
-- **Clip timing:** about 1.0 s neutral face → "NOW" cue → hold until about
-  3.2 s → "RELAX" → back to neutral until 4.5 s. Cue times are saved in
-  milliseconds as `cue_on_ms` and `cue_off_ms`. These are weak labels, since
-  the actual pose lags the cue by human reaction time.
-- **Mirroring:** the preview is mirrored like a selfie camera, but saved video is
-  **not**. The current memes don't depend on direction, so horizontal-flip augmentation is safe.
-- **Data layout:**
-  ```
-  data/consent/consent_log.jsonl        # names live only here
-  data/participants/P###/participant.json   # sessions, recording conditions, person_id
-  data/participants/P###/clips/<clip_id>.{raw.webm,mp4,json}
-  ```
-  `python tools/build_manifest.py` writes `data/manifest.csv`, one row per
-  usable clip. Columns include: clip_id, person_id, participant_id,
-  session_id, prompt_id, kind, label, looks_like, status, protocol_version,
-  mp4_path, cue_on_ms, cue_off_ms, fps, qc metrics, setting, lighting,
-  glasses.
-  **Split data by `person_id`**: repeat sessions by the same person get
-  separate participant IDs but share one person_id.
-- **Other tools:** `tools/review.py` (list flagged clips, reject or restore)
-  and `tools/withdraw.py`.
-- **Test data:** old test data is in `data_test/`, which can be deleted.
-
-### Label set (12 classes, protocol 2026.4)
-
-| id | meme | body region that matters |
+| person_id | sessions so far | still needed |
 |---|---|---|
-| arms_raised | Breaking free (arms up, fists) | upper body |
-| point_at_self | "Who, me?" | face + hand |
-| sleepy_squint | Lightskin stare dog (half-closed eyes) | face (hard pair with holding_laugh) |
-| pinch_grin | Reddit mod (pinched fingers, sly grin) | face + hand |
-| timeout | Shaq timeout (T hands) | hands |
-| hands_on_head | Shocked, hands on head | face + hands |
-| shrek_side_eye | Shrek side-eye, raised brow | face (hard pair with confused_tilt) |
-| holding_laugh | Speed trying not to laugh | face |
-| confused_tilt | Swaggy P "???" | face + head |
-| point_sideways | Pointing Wojak | arm + face |
-| pure_cinema | "Absolute Cinema" (open hands raised beside the head) | hands + arms (hard pairs with arms_raised, hands_on_head) |
-| no_meme | 9 tricky everyday movements + 60 s free clip | — |
+| P001 | 2 full (Sep 29 on the old protocol, Nov 15) | 3 regular + 1 held-out |
+| P003 | 1 full (P004) + 1 in progress (P007) + a short partial | ~3 regular + 1 held-out |
+| P006 | 1 full | 4 regular + 1 held-out |
+| P002 | short partial only (Nov 2) | 5 regular + 1 held-out, **a full session first** |
 
-Each negative's `looks_like` field records which memes it resembles. Use it to
-measure false triggers per meme pair.
+Every session so far used the laptop camera under overhead light. Change as much as you can
+each time:
 
-## 4. Core design principle
-
-**Never let regeneration change the label.** Each synthetic clip must keep
-the source clip's geometry and timing: eye direction, finger positions, arm
-height, and pose start and end. So generation is conditioned on *structure
-extracted from the real clip*, and text is used only for the attributes being
-changed.
-
-We decided **against** an "LLM describes the video → generate video from the
-text" pipeline as the main path. A text bottleneck loses exactly the
-fine-grained geometry and timing that define the labels. It can still appear
-as an **ablation**, to show why direct structural conditioning works better.
-We also prefer modern controllable **diffusion** video models and face reenactment
-over GANs. GANs handle textures and styles but are weak at identity and
-attribute editing in stable, flicker-free video.
-
-## 5. Bottom-up system design
-
-### L0 — Capture: maximize variation within each person
-With only 4 people, the variation has to come from each person's recordings.
-Each member records as many sessions as turn out to be needed (status 2026-11-10: one
-session from one person), changing as much as possible between sessions:
-- rooms and backgrounds
-- lighting: window, overhead, lamp, dim
-- cameras: laptop, external webcam, phone
-- clothing, hair, glasses or none, hats
-- distance from the camera and seated vs standing
-
-Log these details in the app's setup fields.
-**Reserve a held-out test session per person** (section L7), recorded in
-conditions never used for training or generation.
-
-Rough yield: 4 people × 6 sessions × 43 clips ≈ 1,030 real clips (about 790
-meme clips, about 72 per meme). Retired memes (`success_fist`, `chill_guy`) are kept in
-`memes.yaml` as `active: false`; their already-recorded clips are skipped by the pipeline.
-
-### L1 — Preprocess
-- Decode the MP4s. For every frame, run MediaPipe face landmarks (478 points
-  plus 52 blendshape scores), pose (33 points) and hands (21 points per hand).
-  Save one compressed `.npz` file per clip, keyed by `clip_id`.
-- Build tighter labels: shift `cue_on_ms` and `cue_off_ms` by an estimated
-  reaction delay of about 300–500 ms, or detect pose onset from landmark
-  motion energy. Save per-frame labels.
-- Make crops: a face crop and an upper-body crop per frame, for the
-  pixel-based model.
-
-### L2 — Structural "encoder": what is kept from each real clip
-For every frame: face landmarks, body pose skeleton, hand keypoints, and
-optionally depth, edge or segmentation maps. This is what generation is
-conditioned on, and it carries the label.
-
-Optional: a **local** vision-language model writes a caption per clip for
-metadata or ablations only. It is never the conditioning signal.
-
-### L3 — Generation (domain randomization)
-Three tiers, cheapest first:
-1. **Classic augmentation (baseline, required):**
-   - color jitter, gamma, blur, noise and JPEG artifacts
-   - random crop and scale
-   - horizontal flip
-   - background replacement using person segmentation
-   - frame-rate jitter
-2. **Face-region identity editing:** take a real clip and change apparent
-   age, gender, skin tone and hair, keeping the expression and motion. Use
-   face reenactment (drive a different face with our landmarks) or
-   identity-editing video diffusion. This covers face-only memes well:
-   sleepy_squint, holding_laugh, shrek_side_eye and confused_tilt.
-3. **Full-frame structure-conditioned video diffusion:** generate the whole
-   person and scene from the pose, hand and face structure, plus a text prompt
-   describing the attributes. This is needed for body and hand memes.
-   Expect hand failures, which L4 filtering handles.
-
-**Attribute sampling:** a balanced grid, not "whatever the model defaults to".
-- Use neutral, specific prompts (age range, perceived gender presentation,
-  skin tone on the Monk scale, hair, clothing, lighting, background, camera
-  quality).
-- Fix and log the random seeds.
-- Store every synthetic clip's attributes and source clip in a
-  `synthetic_manifest.csv`.
-
-**Model choice (open):** use whichever open-weight controllable video
-diffusion and face-reenactment models are current and run on our GPUs.
-Starting points:
-- *Video Editing Meets Diffusion Models: A Comprehensive Survey* (TechRxiv,
-  Feb 2026)
-- the GitHub list "Awesome-Controllable-Video-Diffusion"
-- IP-FaceDiff, DiffFERV and MagicMirror, as examples of identity-preserving
-  face video editing
-
-Pick based on:
-- pose, landmark and hand conditioning support
-- a license that allows research use
-- how much GPU memory it needs
-- seconds of compute per 4.5-second clip
-
-Prototype on 20 clips before scaling.
-
-**Frames, not videos (decided 2026-11-14).** Generation edits single frames: peak-pose
-frames of memes, neutral moments, negative-movement peaks and free-behavior frames, all
-with the same balanced attribute grid. Backends: FLUX.2 [klein] 4B (Apache 2.0, fast) for
-comparison, Qwen-Image-Edit-2511 at full quality as the main generator now that budget
-allows it. Prompts describe the measured
-expression (feature-prompt mitigation from Seo et al. 2026, arXiv 2602.16149) and lock
-pose, hands and fingers. **Per-fold generator fine-tuning is not planned**: fine-tuning on 4 faces tends to narrow
-appearance diversity. It is affordable now, so revisit it only if the prototype shows
-expression loss that a fine-tune could fix.
-Leakage is avoided by using, in each fold, only synthetic frames whose source person is a
-training person.
-
-### L4 — Filter and check quality (synthetic clips)
-Reject a synthetic clip if any of these checks fail:
-- **Label kept:** rerun MediaPipe on the synthetic clip. Compare its
-  normalized landmarks with the source clip's, frame by frame (face,
-  pose and hands separately). Reject above a threshold. Hands must stay
-  detected in hand memes.
-- **Identity stays stable over time:** a face-recognition embedding should
-  barely change between frames, so there's no identity flicker.
-- **Attribute actually changed:** the synthetic face should look clearly
-  different from the source person, measured by embedding distance.
-- **Human check:** hand-review a random sample of about 5% per meme and per
-  attribute. Report rejection rates by meme and by attribute; these are
-  results in their own right.
-
-### L5 — Models (increasing capacity)
-- **M0 Rules:** thresholds on MediaPipe blendshapes and keypoints. This is the
-  floor every other model has to beat.
-- **M1 Landmark model:** a temporal model over per-frame landmark features,
-  about 1-second windows, using a GRU, a temporal CNN or a small transformer.
-  Since landmarks already strip out appearance, synthetic data is
-  expected to help M1 **only a little**. Predicting this and confirming it is a finding.
-- **M2 Pixel model:** a video classifier on face and upper-body crops.
-  Either a 2D image model with a temporal head, or a fine-tuned pretrained
-  video model. **This is where appearance randomization should matter most.**
-- **M3 (stretch):** combine M1 and M2.
-- **Rejecting non-memes and steadying output (all models):**
-  - include the no_meme class
-  - add a confidence threshold
-  - require the same prediction for N consecutive frames before showing a
-    meme, and keep it until confidence drops (hysteresis)
-
-### L6 — Training experiments
-| | real only | + classic aug | + synthetic | synthetic only |
+| session | place | lighting | camera | you |
 |---|---|---|---|---|
-| M1 | ✓ | ✓ | ✓ | (optional) |
-| M2 | ✓ | ✓ | ✓ | ✓ |
+| next | a different room | window daylight | laptop | different top |
+| next | kitchen or common room | warm lamp, evening | phone as webcam / external webcam | glasses or hat |
+| next | classroom, library or hallway | overhead fluorescent | another camera | standing, further back |
+| next | in front of a window | backlit or dim | laptop | jacket |
+| **held-out** | somewhere you use nowhere else | lighting used nowhere else | a camera used nowhere else | an outfit worn nowhere else |
 
-Also run:
-- a synthetic-to-real ratio sweep: 0, 0.5×, 1×, 2× and 4× synthetic data
-  relative to real
-- an ablation of tier 2 (face edits) vs tier 3 (full-frame generation)
-- optionally, the LLM-text-bottleneck ablation
+Rules for every session:
+- **Sign with exactly the same name every time,** on every laptop. That's how your sessions
+  get linked into one person.
+- **Fill in the setup details** (place, camera, lighting, glasses).
+- **Sit back far enough** that raised arms and hands stay in the frame.
+- **Run `git pull` before recording,** so every laptop uses the same meme list.
+- **Tell Otis your held-out session's ID,** so it can be excluded from training.
 
-### L7 — Evaluation (the hardest part with 4 people)
-Never train on a test person's synthetic variants.
-1. **Leave one person out (main metric):** 4 folds. Synthetic data for each
-   fold is generated **only from the training people's clips**.
-2. **New-conditions test:** each person's reserved session in an unseen
-   room, lighting and outfit, never used for training or generation.
-3. **Synthetic stress test:** test clips made by a **different generator or
-   different seeds and attributes** than the training data. Report accuracy
-   per attribute (age, skin tone, gender presentation). This partly
-   reuses the same kind of data the model trained on, so present it as a
-   stress test, **not** evidence of fairness for real people.
-4. ~~Optional real-world check on public datasets~~: **dropped** (the classes are too
-   specific to match public datasets).
+### Record on your own laptop
 
-**Metrics:**
-- macro-F1 and per-class F1, plus confusion matrices (watch the known hard pairs)
-- false triggers per minute on the free-behavior clips
-- delay from striking a pose to the meme appearing, and frames per second on the laptop
-- **robustness gap:** accuracy on real data minus accuracy on each synthetic attribute group, compared across training setups
+**Mac:**
+1. Run `brew install ffmpeg`.
+2. Clone the repo: `git clone https://github.com/otishunt/ventura-webcam-update.git`
+3. Double-click `meme-recorder/run_local.command`.
 
-**State the limitation plainly in the report:** 4 people can't establish demographic
-fairness. The claim is that robustness to appearance variation improved under
-controlled tests.
+**Windows:**
+1. Install [Python 3](https://www.python.org/downloads/) and tick **"Add python.exe to
+   PATH"**. Also install [Git](https://git-scm.com/download/win), and ffmpeg with
+   `winget install Gyan.FFmpeg`. Then open a new terminal window.
+2. Clone the repo into a folder **OneDrive doesn't sync**, e.g. `C:\meme\ventura-webcam-update`.
+   OneDrive often backs up Desktop and Documents, which would upload the videos.
+3. Double-click `meme-recorder\run_local.bat`. The first run installs packages (a minute or two).
 
-### L8 — Live demo
-Laptop webcam → MediaPipe and/or crops → model → smoothing and hysteresis →
-when a meme is detected, show the meme image (`config/meme_images/<id>.jpg`)
-in place of the feed. Target at least 15 frames per second end to end.
+**On both:**
+- The first launch asks for a **station name**: use your initials. Your participant IDs
+  then start with it (e.g. `CA-P001`), so they never clash with other laptops.
+- The browser opens `http://localhost:8000`. The page is reachable only from your laptop.
+- Keep the terminal window open while recording, and close it to stop.
+- One session is 43 short clips plus a 60-second "act normally" clip, about 15–20 minutes.
 
-## 6. Improvement cycle (required by the course)
-- **v1:** M0, M1 and M2 trained on real data plus classic augmentation, then
-  evaluated with leave-one-person-out and the new-conditions test.
-- **Failure analysis:** which classes, conditions and look-alike pairs fail?
-- **v2:** add synthetic data (tiers 2 and 3), then re-evaluate on the same
-  splits and show the change.
+### Send your recordings to Otis's Mac
+```bash
+cd meme-recorder
+python3 tools/export_recordings.py                   # Mac
+.venv\Scripts\python tools\export_recordings.py      # Windows
+```
+This makes `meme-recorder/exports/meme-recordings-<station>-<date>.zip`. Send it by
+**AirDrop (Mac) or a USB stick (Windows)**, never by email, chat, Google Drive or git: it
+holds your videos and your signed name. Delete it once Otis confirms the import.
+Exporting again later is fine; only new clips get added.
 
-## 7. Suggested timeline (about 5 weeks; adjust once the deadline is confirmed)
-| week | work |
+Otis imports it with `python tools/import_recordings.py <zip>`, then runs
+`python tools/build_manifest.py`.
+
+## 3. How the system works
+
+```
+Recorder (each laptop) -> clips + cue times -> zip -> Otis's Mac
+Mac:   MediaPipe landmarks -> refined labels -> M0 rules / M1 landmark GRU -> crops
+Delta: image edits (Qwen-Image-Edit / FLUX.2 klein) -> quality checks -> synthetic frames -> M2
+All:   leave-one-person-out evaluation -> live webcam demo on the Mac
+```
+
+**The task:** 11 memes plus `no_meme` (protocol 2026.4).
+
+| id | meme | what matters |
+|---|---|---|
+| arms_raised | Breaking free (both fists high overhead) | arms |
+| point_at_self | "Who, me?" | hand + face |
+| sleepy_squint | Lightskin stare dog (half-closed eyes) | face |
+| pinch_grin | Reddit mod (pinched fingers, sly grin) | hand + face |
+| timeout | Shaq "T" hands at chest height | hands |
+| hands_on_head | Shocked, hands on head | hands + face |
+| shrek_side_eye | Side-eye with a raised brow | face |
+| holding_laugh | Trying not to laugh | face |
+| confused_tilt | Swaggy P "???" head tilt | head + face |
+| point_sideways | Pointing Wojak | arm + face |
+| pure_cinema | "Absolute Cinema" (open hands raised beside the head) | hands + arms |
+| no_meme | 9 tricky everyday movements + a 60 s free clip | — |
+
+`success_fist` and `chill_guy` were retired on Nov 15. Their old clips are skipped
+automatically.
+
+**Each part:**
+- **Labels:** the NOW/RELAX cue times are only rough, so the real pose start and end are
+  found from landmark motion. Frames right at the boundaries are ignored.
+- **M0 rules:** hand-written geometric rules, used as the floor to beat.
+- **M1:** a GRU over 1 second of landmarks. **M2** (not built yet) is a pixel model on face
+  and upper-body crops; that's where synthetic data should matter most.
+- **Smoother:** the same hysteresis smoother is used in evaluation and the demo, so a meme
+  shows only after several confident frames.
+- **Synthetic data:** we edit *real frames* rather than generate from text, so the pose,
+  fingers and expression, which carry the label, survive.
+  - **Sources:** peak-pose frames, neutral moments, negative-movement peaks and free-clip
+    frames are all edited the same way.
+  - **Prompts:** one face attribute per edit (skin tone on the Monk scale, gender
+    presentation, age or hair) plus background, clothing and lighting, balanced per meme.
+    Prompts describe the measured expression (eyes half-closed, gaze direction…).
+  - **Checks:** each edit is kept only if MediaPipe confirms the expression, fingers and
+    arms didn't change, and, for skin-tone edits, that the measured skin tone (ITA)
+    actually moved.
+  - **Reporting:** rejection rates per meme × attribute are results in their own right.
+- **Evaluation:**
+  - **Leave-one-person-out (main metric):** train on 3 people, test on the 4th, 4 times. The
+    test person's synthetic variants are never used for training.
+  - **New-conditions test:** the held-out sessions.
+  - **Synthetic stress test:** reported as a stress test, *not* as fairness evidence.
+
+## 4. Where things run
+
+- **Otis's Mac (free, no queue, videos never leave it):**
+  - setup: `scripts/setup_mac.sh` once
+  - main pipeline: `scripts/run_mac.sh`, which runs extraction, labels, M0, M1 and the crops
+  - live demo
+- **NCSA Delta** (allocation `bjeg`, CSC 4888; the professor approved using more): bulk
+  image editing and M2 training on A40/H200 GPUs, via Slurm jobs in `slurm/`. Only the
+  cropped frames go there, never the videos, in a `chmod 700` team folder. Login is
+  SSH/VS Code to `login.delta.ncsa.illinois.edu` with your NCSA username, password and Duo.
+- **Code:** GitHub `otishunt/ventura-webcam-update`. Participant data is git-ignored
+  everywhere.
+
+## 5. Results so far (v1, Nov 15: one session per person)
+
+Leave-one-person-out, frame macro-F1. The P002 fold has only 6 test clips, so it's left
+out of the average.
+
+| model | P001 | P003 | P006 | mean | false triggers/min |
+|---|---|---|---|---|---|
+| M0 rules | 0.19 | 0.26 | 0.34 | 0.26 | ~36 |
+| M1, no augmentation | 0.72 | 0.77 | 0.67 | **0.72** | ~4 |
+| M1, classic augmentation | 0.58 | 0.76 | 0.71 | 0.68 | ~4 |
+
+**What it shows:**
+- M1 detects 76–82% of meme clips, about 0.5 s after the pose starts.
+- Strong: pinch_grin, pure_cinema, arms_raised, holding_laugh, point_at_self.
+- Weak: **sleepy_squint (0.11)**, timeout (0.54), point_sideways (0.59).
+- False triggers are far too high for a demo (the target is < 1 per minute).
+- Augmentation slightly hurt, which still needs an ablation over several random seeds.
+- The median reaction delay from cue to pose is **616 ms**: hand memes are slower (around
+  700–770 ms) and face memes faster (holding_laugh 432 ms).
+
+**Built but not yet run:** `scripts/run_v1_fixes.sh` (about 45 min on the Mac):
+- M0 with a fairer no_meme threshold
+- the augmentation ablation over 3 seeds
+- smoother tuning that targets ≤ 1 false trigger per minute
+- a minimum test-fold size
+
+## 6. Next steps
+
+- [ ] Everyone: record the remaining sessions (section 2). P002 needs a full session first.
+- [ ] Run `scripts/run_v1_fixes.sh` and review the results (the v1 failure analysis).
+- [ ] Prototype image edits on 20 frames (Mac or a short Delta job) and tune the prompts and
+      check thresholds.
+- [ ] Bulk generation on Delta (`slurm/generate.slurm`).
+- [ ] Build M2 (a frame model on crops), then the v2 comparison with synthetic data.
+- [ ] Add a streaming ("causal") feature mode, then the live demo.
+- [ ] Ablations: synthetic-to-real ratio, feature prompts on/off, Qwen vs klein.
+- [ ] Report and presentation.
+
+## 7. Privacy and ethics rules (non-negotiable)
+
+- **Videos and anything derived from them** (landmarks, crops, synthetic frames) stay on
+  team computers: the laptops, Otis's Mac, and the private folder on Delta.
+  - Never put them in git, email, chat, Google Drive, iCloud or OneDrive folders, or any
+    hosted AI tool.
+  - This is what all four of us signed in the consent form.
+- **Recordings move only by AirDrop or USB stick.**
+- **Withdrawal:** `tools/withdraw.py <ID>` deletes a participant's videos. Derived files
+  must also be deleted.
+- **Prompts:** use observable descriptions, never race labels. Hand-audit samples, and report
+  rejection rates per attribute.
+- **Claims:** no fairness claims for real populations. Four people can only show
+  *robustness to appearance variation under controlled tests*.
+- **The GitHub repo is currently public,** and now includes the meme images. Consider making
+  it private (Settings → General → Danger Zone).
+
+## 8. Key decisions
+
+| date | decision |
 |---|---|
-| 1 | Team records the sessions (L0) and preprocessing (L1). M0 and M1 baselines on real data. Pick the generation models and prototype on 20 clips. |
-| 2 | M2 baseline. Classic augmentation. Tier-2 face editing pipeline plus L4 filter. |
-| 3 | Generate synthetic data for each fold at scale on the server. Tier 3 for 2–3 body memes. |
-| 4 | Training matrix (L6) and evaluation (L7). Live demo. |
-| 5 | Ablations if time allows, report writing, figures, presentation. |
+| Nov 10 | Synthetic augmentation approved by the professor; no public datasets |
+| Nov 10 | Generation conditions on structure from real clips, not text descriptions |
+| Nov 14 | Generate **frames, not videos**; no per-fold generator fine-tuning |
+| Nov 14 | Prompts describe measured expression (Seo et al. 2026, arXiv 2602.16149); vetted attribute wording |
+| Nov 15 | Compute: Delta `bjeg`, use as much as needed; the Mac does everything that fits |
+| Nov 15 | Protocol 2026.4: retired success_fist and chill_guy, added pure_cinema |
+| Nov 15 | Recorder runs locally only (no tunnel); several laptops merge by zip over AirDrop/USB |
+| Nov 15 | Splits are always by person; held-out sessions per person for the new-conditions test |
 
-## 8. Ethics notes for the report
-- **Stereotyping risk:** changing someone's apparent ethnicity or gender with a
-  generative model can produce stereotyped results. Use neutral prompts,
-  audit samples by hand, and report problems.
-- **Generator bias:** the generators have their own demographic biases (some
-  groups render worse). Report rejection rates per attribute.
-- **Synthetic faces:** keep altered videos of team members inside the team.
-- **Fairness claims:** no claims of fairness for real populations (see L7).
-- **Meme images:** used only as on-screen prompts. Cite sources in
-  `config/meme_images/SOURCES.md`.
+## 9. Repository map
 
-## 9. Decisions (2026-11-10)
-1. Synthetic augmentation: **approved** by the professor.
-2. Deadline: about 5 weeks (mid-December); the proposal is done.
-3. Sessions per member: as many as needed. Reserve one held-out session per person
-   (`split.heldout_sessions` in the pipeline config).
-4. Generation models: Qwen-Image-Edit-2511 at full quality as the main generator, with
-   FLUX.2 [klein] for comparison; single frames, not video; 10 variants per frame.
-5. Public dataset check: **no**.
-6. M2 as the main model: **open** (recommended: yes).
-7. Demo laptop: M4 MacBook. Compute: NCSA Delta (see docs/RUNBOOK.md for Slurm jobs).
-8. Team: everyone can work on every part.
-9. Compute: the professor approved using as much as needed and requesting more. The Mac
-   still handles everything that fits (no queue, videos stay local).
-
-## 10. Status (2026-11-14)
-Pipeline repo: `ventura-webcam-update` (GitHub otishunt/ventura-webcam-update). Built and
-tested on fake data (16 tests):
-- L1: extraction and refined labels
-- M0 rules and M1 GRU/TCN, evaluated with lopo/newcond/loso
-- L3/L4: crop export, a balanced attribute plan with expression-aware prompts, klein/Qwen
-  backends, and MediaPipe/finger/ITA checks with acceptance reports
-- Mac and Delta configs and Slurm jobs
-
-The recorder runs locally via `run_local.command`. **Next:** record all four people, run
-`scripts/run_mac.sh`, prototype 20 edits, then bulk generation on Delta, then build M2
-(the frame model on crops).
+```
+meme-recorder/   recording app; run_local.command (Mac) / run_local.bat (Windows);
+                 tools/: build_manifest, review, withdraw, export_recordings, import_recordings
+memepose/        pipeline: extract, labels, features, models/ (M0, M1), evaluate, ablate,
+                 tune_smoother, generate/ (frames, prompts, editors, checks, run)
+configs/         pipeline.yaml (classes, settings), mac.yaml, delta.yaml, generation.yaml
+scripts/         setup_mac.sh, run_mac.sh, run_v1_fixes.sh
+slurm/           Delta jobs: setup, model download, generation array, baselines
+docs/            HANDOFF.md (this file), RUNBOOK.md (commands)
+```
