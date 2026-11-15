@@ -93,7 +93,7 @@ def test_smoother_hysteresis():
 
 def test_rules_pick_obvious_memes(fake_clip):
     from memepose.models.rules import MEMES, rule_scores
-    for m in ("arms_raised", "confused_tilt", "sleepy_squint", "point_sideways", "timeout"):
+    for m in ("arms_raised", "confused_tilt", "sleepy_squint", "point_sideways", "timeout", "pure_cinema"):
         s = rule_scores(compute_features(fake_clip(m)))
         hold = slice(int(2.0 * 30), int(3.0 * 30))
         assert MEMES[int(np.argmax(np.median(s[hold], 0)))] == m, m

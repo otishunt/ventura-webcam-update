@@ -9,3 +9,8 @@ mediapipe>=0.10.20,<2          # 1.x has Linux aarch64 wheels (Grace Hopper node
 opencv-contrib-python>=4.8,<5  # the recorder's QC needs OpenCV 4; keep the same pin to be safe
 torch>=2.2                     # install the CUDA build that matches the server, see README
 pytest>=8
+# image generation (L3)
+diffusers>=0.43
+transformers>=4.51
+accelerate>=1.0
+pillow>=10

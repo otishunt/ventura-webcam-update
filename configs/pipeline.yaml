@@ -3,18 +3,18 @@
 # kind is meme | negative | free, looks_like is ;-separated, mp4_path is relative to data/.
 
 paths:
-  recorder_root: ../meme-recorder          # recorder folder (or its data/ folder)
-  manifest: ../meme-recorder/data/manifest.csv
+  recorder_root: meme-recorder             # recorder folder inside this repo (or its data/ folder)
+  manifest: meme-recorder/data/manifest.csv
   mediapipe_models: models/mediapipe       # filled by scripts/download_mediapipe_models.sh
   landmarks: work/landmarks                # one <clip_id>.npz per clip (L1 output)
   labels: work/labels                      # clip_labels.csv + frame_labels.npz (L1 output)
   features: work/features                  # cached per-frame feature arrays
+  crops: work/crops                        # frames.csv + real/ and gen_src/ crops (generate.frames)
+  synthetic: work/synthetic                # generated frames, one subfolder per run name
   runs: runs                               # experiment outputs
 
-classes:                                   # index order is fixed; no_meme must stay last
-  - success_fist
+classes:                                   # recorder protocol 2026.4; no_meme must stay last
   - arms_raised
-  - chill_guy
   - point_at_self
   - sleepy_squint
   - pinch_grin
@@ -24,12 +24,14 @@ classes:                                   # index order is fixed; no_meme must 
   - holding_laugh
   - confused_tilt
   - point_sideways
+  - pure_cinema
   - no_meme
 
 manifest:
   # The recorder writes kind = meme | negative | free (free prompt_id: free_behavior).
   free_kinds: [free]
   exclude_status: [rejected, qc_failed]   # build_manifest.py already drops these unless --all
+  retired_labels: [success_fist, chill_guy]   # memes dropped in protocol 2026.4; their clips are skipped
   expected_fps: 30
 
 extraction:

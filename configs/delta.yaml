@@ -1,10 +1,13 @@
-# NCSA Delta. Replace PROJ with your 4-letter project code (run `accounts` on Delta).
-# Videos and everything derived from them live on /work/hdd (the job I/O area), not in $HOME.
+# NCSA Delta, allocation bjeg (CSC 4888, shared with the class).
+# Delta only needs the crops exported on the Mac (work/crops), not the videos.
 base: pipeline.yaml
 paths:
-  recorder_root: /work/hdd/PROJ/meme-pose/meme-recorder
-  manifest: /work/hdd/PROJ/meme-pose/meme-recorder/data/manifest.csv
-  landmarks: /work/hdd/PROJ/meme-pose/work/landmarks
-  labels: /work/hdd/PROJ/meme-pose/work/labels
-  features: /work/hdd/PROJ/meme-pose/work/features
-  runs: /work/hdd/PROJ/meme-pose/runs
+  mediapipe_models: /work/hdd/bjeg/meme-pose/models/mediapipe
+  landmarks: /work/hdd/bjeg/meme-pose/work/landmarks
+  labels: /work/hdd/bjeg/meme-pose/work/labels
+  features: /work/hdd/bjeg/meme-pose/work/features
+  crops: /work/hdd/bjeg/meme-pose/work/crops
+  synthetic: /work/hdd/bjeg/meme-pose/work/synthetic
+  runs: /work/hdd/bjeg/meme-pose/runs
+extraction:
+  workers: 0

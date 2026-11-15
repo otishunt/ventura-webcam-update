@@ -1,0 +1,122 @@
+# Synthetic frame generation (L3) and quality checks (L4).
+# Used by: python -m memepose.generate.frames / memepose.generate.run
+#
+# Attribute wording is a VETTED list: describe observable appearance, never race or ethnicity
+# labels. An automated prompt sweep may edit `templates` but must not edit `attributes`.
+
+frames:
+  train_every: 3           # export every 3rd labelled frame of normal clips as a real training crop
+  free_train_every: 6      # free-behavior clips are long; sample them more sparsely
+  train_size: 256          # px, square crops for M2 training
+  gen_size: 768            # px, square crops used as generation sources
+  meme_peaks: [0.25, 0.5, 0.75]   # positions inside the refined pose interval
+  meme_neutral: 1          # neutral (no_meme) frames per meme clip, from before the pose
+  negative_peaks: 3        # highest-motion frames per negative clip
+  free_sources: 30         # evenly spaced frames per free-behavior clip
+  min_peak_gap: 10         # frames between chosen negative peaks
+
+variants_per_frame: 10     # edits planned per source frame
+face_attributes: [skin_tone, gender_presentation, age, hair]   # exactly one per edit
+feature_prompt: true       # describe the measured expression in the prompt (paper's mitigation)
+
+attributes:
+  skin_tone:               # Monk Skin Tone scale groups; target ITA ranges (degrees) for the check
+    - {id: monk_1_2, text: "very light skin tone (Monk scale 1-2)", ita: [55, 90]}
+    - {id: monk_3_4, text: "light skin tone (Monk scale 3-4)", ita: [41, 55]}
+    - {id: monk_5_6, text: "medium tan skin tone (Monk scale 5-6)", ita: [19, 41]}
+    - {id: monk_7_8, text: "brown skin tone (Monk scale 7-8)", ita: [-10, 19]}
+    - {id: monk_9_10, text: "deep dark brown skin tone (Monk scale 9-10)", ita: [-90, -10]}
+  gender_presentation:
+    - {id: feminine, text: "a feminine-presenting appearance"}
+    - {id: masculine, text: "a masculine-presenting appearance"}
+    - {id: androgynous, text: "an androgynous appearance"}
+  age:
+    - {id: young_adult, text: "a young adult in their early twenties"}
+    - {id: middle_aged, text: "a middle-aged adult in their late forties"}
+    - {id: older_adult, text: "an older adult in their late sixties"}
+  hair:
+    - {id: short_curly, text: "short curly black hair"}
+    - {id: long_straight, text: "long straight brown hair"}
+    - {id: shaved, text: "a closely shaved head"}
+    - {id: braids, text: "hair in long braids"}
+    - {id: blonde_bob, text: "a blonde bob haircut"}
+    - {id: grey_short, text: "short grey hair"}
+  clothing:
+    - {id: hoodie, text: "a plain grey hoodie"}
+    - {id: tshirt, text: "a plain colored t-shirt"}
+    - {id: button_shirt, text: "a collared button-up shirt"}
+    - {id: sweater, text: "a knit sweater"}
+    - {id: jacket, text: "a denim jacket"}
+  background:
+    - {id: bedroom, text: "a cluttered bedroom"}
+    - {id: office, text: "a plain office with a white wall"}
+    - {id: kitchen, text: "a home kitchen"}
+    - {id: classroom, text: "a classroom"}
+    - {id: living_room, text: "a living room with a couch"}
+    - {id: dorm, text: "a dorm room with posters"}
+  lighting:
+    - {id: window, text: "soft daylight from a window"}
+    - {id: overhead, text: "harsh overhead fluorescent lighting"}
+    - {id: lamp, text: "warm lamp light"}
+    - {id: dim, text: "dim evening lighting"}
+
+templates:
+  face:
+    skin_tone: "Change the person's skin to a {text}, consistently on the face, neck, arms and hands."
+    gender_presentation: "Change the person to have {text}."
+    age: "Change the person to look like {text}."
+    hair: "Change the person's hair to {text}."
+  background: "Replace the background with {text}."
+  clothing: "Change their top to {text}."
+  lighting: "Make the lighting {text}."
+  maintain_feature: "Maintain the person's exact facial expression: {expression}."
+  maintain_generic: "Keep the facial expression exactly the same."
+  locked: >-
+    Keep the head position and tilt, the arm positions, both hands and every finger, and the
+    camera framing exactly as they are. Photorealistic webcam photo.
+  # skin-tone edits keep the original lighting so the skin-tone (ITA) check is meaningful
+  skin_tone_keeps_lighting: true
+
+backends:
+  klein4b:                 # FLUX.2 [klein] 4B, Apache 2.0, ~13 GB, step-distilled
+    pipeline: Flux2KleinPipeline
+    model: black-forest-labs/FLUX.2-klein-4B
+    steps: 4
+    guidance_scale: 1.0
+  klein9b:                 # FLUX.2 [klein] 9B, non-commercial license (fine for coursework)
+    pipeline: Flux2KleinPipeline
+    model: black-forest-labs/FLUX.2-klein-9B
+    steps: 4
+    guidance_scale: 1.0
+  qwen_edit:               # Qwen-Image-Edit-2511, Apache 2.0, ~40 GB bf16
+    pipeline: QwenImageEditPlusPipeline
+    model: Qwen/Qwen-Image-Edit-2511
+    steps: 40
+    true_cfg_scale: 4.0
+    guidance_scale: 1.0
+    negative_prompt: " "
+    lora: null             # e.g. a Lightning LoRA repo + set steps: 8 for ~5x speed
+  stub:                    # no model: tints the image. For tests and dry runs.
+    pipeline: stub
+
+checks:                    # L4 thresholds; starting guesses, calibrate on the prototype
+  require_face: true
+  max_expr_delta: 0.10     # mean |change| over expression blendshapes
+  max_key_delta: 0.25      # max |change| in the blendshapes that define the meme
+  max_roll_delta_deg: 6
+  min_rule_ratio: 0.6      # M0 rule score of the label after/before (meme frames only)
+  max_hand_shape_delta: 0.35   # wrist-relative finger positions, palm-length units
+  max_pose_delta: 0.25     # shoulder/elbow/wrist positions, shoulder-width units
+  skin_min_ita_shift: 8    # degrees the skin must move toward the target ITA range
+  hand_memes: [point_at_self, pinch_grin, timeout, hands_on_head, point_sideways, arms_raised, pure_cinema]
+  key_blendshapes:
+    sleepy_squint: [eyeBlinkLeft, eyeBlinkRight, eyeSquintLeft, eyeSquintRight]
+    shrek_side_eye: [browOuterUpLeft, browOuterUpRight, browDownLeft, browDownRight,
+                     eyeLookOutLeft, eyeLookInLeft, eyeLookOutRight, eyeLookInRight]
+    holding_laugh: [mouthSmileLeft, mouthSmileRight, mouthPressLeft, mouthPressRight,
+                    mouthRollLower, cheekSquintLeft, cheekSquintRight]
+    confused_tilt: [browInnerUp, browDownLeft, browDownRight]
+    pinch_grin: [mouthSmileLeft, mouthSmileRight]
+    hands_on_head: [jawOpen, eyeWideLeft, eyeWideRight]
+    point_at_self: [browInnerUp, eyeWideLeft, eyeWideRight]
+    pure_cinema: [mouthPressLeft, mouthPressRight]

@@ -1,0 +1,6 @@
+# Otis's Mac: everything except bulk generation and M2 training runs here, for free.
+# Derived data (landmarks, crops) stays in work/ inside this repo (git-ignored).
+base: pipeline.yaml
+paths:
+  recorder_root: meme-recorder             # the recorder lives inside this repo
+  manifest: meme-recorder/data/manifest.csv

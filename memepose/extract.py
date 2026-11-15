@@ -30,7 +30,8 @@ class Extractor:
     """Wraps the three MediaPipe Tasks landmarkers in VIDEO mode (timestamps must increase)."""
 
     def __init__(self, model_dir: str | Path, pose_model: str = "pose_landmarker_full.task",
-                 num_hands: int = 2, min_det: float = 0.5, min_track: float = 0.5):
+                 num_hands: int = 2, min_det: float = 0.5, min_track: float = 0.5,
+                 mode: str = "video"):
         from mediapipe.tasks.python import BaseOptions
         from mediapipe.tasks.python import vision
 
@@ -39,7 +40,8 @@ class Extractor:
             if not (model_dir / name).exists():
                 raise FileNotFoundError(
                     f"{model_dir / name} missing: run scripts/download_mediapipe_models.sh")
-        video = vision.RunningMode.VIDEO
+        self.mode = mode  # "video" (tracking, increasing timestamps) or "image" (independent frames)
+        video = vision.RunningMode.VIDEO if mode == "video" else vision.RunningMode.IMAGE
         self.face = vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_dir / "face_landmarker.task")),
             running_mode=video, num_faces=1, output_face_blendshapes=True,
@@ -78,7 +80,8 @@ class Extractor:
         image = mpipe.Image(image_format=mpipe.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
         out.t_ms[i] = t_ms
 
-        f = self.face.detect_for_video(image, t_ms)
+        detect = (lambda lm: lm.detect_for_video(image, t_ms)) if getattr(self, "mode", "video") == "video" else (lambda lm: lm.detect(image))
+        f = detect(self.face)
         if f.face_landmarks:
             out.face[i] = [(p.x, p.y, p.z) for p in f.face_landmarks[0]][:478]
             if f.face_blendshapes:
@@ -86,12 +89,12 @@ class Extractor:
             if f.facial_transformation_matrixes:
                 out.face_mat[i] = np.asarray(f.facial_transformation_matrixes[0], np.float32)
 
-        p = self.pose.detect_for_video(image, t_ms)
+        p = detect(self.pose)
         if p.pose_landmarks:
             out.pose[i] = [(q.x, q.y, q.z, q.visibility if q.visibility is not None else 1.0)
                            for q in p.pose_landmarks[0]]
 
-        h = self.hands.detect_for_video(image, t_ms)
+        h = detect(self.hands)
         for lms, handed in zip(h.hand_landmarks, h.handedness):
             cat = handed[0]
             slot = 0 if cat.category_name.lower() == "left" else 1

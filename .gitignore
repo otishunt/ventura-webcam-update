@@ -16,3 +16,17 @@ __pycache__/
 
 logs/*
 !logs/.gitkeep
+
+# meme-recorder (lives in this repo): participant data must NEVER be committed
+meme-recorder/data/
+meme-recorder/data_test/
+meme-recorder/.backup_before_no_ids/
+meme-recorder/.venv/
+meme-recorder/.admin_token
+meme-recorder/config/meme_images/*.jpg
+meme-recorder/config/meme_images/*.jpeg
+meme-recorder/config/meme_images/*.gif
+meme-recorder/config/meme_images/*.webp
+meme-recorder/config/meme_images/*.png
+*.jsonl
+.admin_token

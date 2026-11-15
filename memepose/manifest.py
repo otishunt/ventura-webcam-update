@@ -69,6 +69,11 @@ def load_manifest(cfg: Config, path: str | Path | None = None) -> pd.DataFrame:
 
     label = df["label"].fillna("").astype(str).str.strip()
     label = label.where(~(is_free & ~label.isin(classes)), "no_meme")
+    retired = label.isin(mcfg.get("retired_labels", []))
+    if retired.any():
+        print(f"skipping {int(retired.sum())} clips of retired memes "
+              f"({', '.join(sorted(set(label[retired])))})")
+        df, label, is_free = df[~retired].copy(), label[~retired], is_free[~retired]
     unknown = sorted(set(label) - set(classes))
     if unknown:
         warnings.warn(f"dropping clips with labels not in configs classes: {unknown}")

@@ -7,6 +7,8 @@ paths:
   labels: work/fake/labels
   features: work/fake/features
   runs: work/fake/runs
+  crops: work/fake/crops
+  synthetic: work/fake/synthetic
 m1:
   epochs: 12
   patience: 4

@@ -21,18 +21,18 @@ from .landmarks_io import ClipLandmarks
 
 W, H, FPS = 1280, 720, 30.0
 ASPECT = W / H
-MEMES = ["success_fist", "arms_raised", "chill_guy", "point_at_self", "sleepy_squint",
-         "pinch_grin", "timeout", "hands_on_head", "shrek_side_eye", "holding_laugh",
-         "confused_tilt", "point_sideways"]
+MEMES = ["arms_raised", "point_at_self", "sleepy_squint", "pinch_grin", "timeout",
+         "hands_on_head", "shrek_side_eye", "holding_laugh", "confused_tilt", "point_sideways",
+         "pure_cinema"]  # recorder protocol 2026.4
 NEGATIVES = {  # prompt -> (looks_like, target)
-    "neg_wave": ("point_sideways|arms_raised", "wave"),
+    "neg_wave": ("point_sideways|arms_raised|pure_cinema", "wave"),
     "neg_scratch_head": ("hands_on_head", "scratch_head"),
     "neg_yawn": ("holding_laugh|sleepy_squint", "yawn"),
-    "neg_stretch": ("arms_raised", "stretch"),
-    "neg_smile": ("chill_guy|holding_laugh", "smile"),
+    "neg_stretch": ("arms_raised|pure_cinema", "stretch"),
+    "neg_smile": ("holding_laugh", "smile"),
     "neg_look_away": ("shrek_side_eye", "look_away"),
     "neg_rub_eyes": ("hands_on_head|sleepy_squint", "rub_eyes"),
-    "neg_thumbs_up": ("success_fist", "thumbs_up"),
+    "neg_thumbs_up": ("point_at_self", "thumbs_up"),
     "neg_tilt_small": ("confused_tilt", "tilt_small"),
 }
 
@@ -126,6 +126,10 @@ def target_state(name: str, rng) -> dict:
     elif name == "confused_tilt":
         s["blend"] = {"browInnerUp": .4, "browDownLeft": .3, "mouthLeft": .3}
         s["roll"] = 18
+    elif name == "pure_cinema":
+        s["blend"] = {"mouthPressLeft": .45, "mouthPressRight": .45, "browInnerUp": .15}
+        for k, sg in ((L, 1), (R, -1)):
+            s["elbows"][k], s["wrists"][k], s["hands"][k] = (sg * .95, -.25), (sg * .85, -.95), ("open", 0)
     elif name == "point_sideways":
         s["blend"] = {"browInnerUp": .2}
         s["elbows"][R], s["wrists"][R], s["hands"][R] = (-1.0, -0.05), (-1.5, -0.1), ("point", -90)
@@ -299,8 +303,24 @@ def make_clip(target: str, dur_ms: float, cue_on: float, cue_off: float, person:
     return out
 
 
+def render_video(lm: ClipLandmarks, path: Path) -> None:
+    """Draw the landmarks as a simple video (so crop/generation code can be tested)."""
+    import cv2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (W, H))
+    for i in range(lm.n_frames):
+        img = np.full((H, W, 3), 60, np.uint8)
+        for arr, color in ((lm.face[i, ::6, :2], (200, 180, 160)), (lm.pose[i, :23, :2], (80, 200, 80)),
+                           (lm.hands[i].reshape(-1, 3)[:, :2], (80, 80, 230))):
+            for x, y in arr:
+                if not np.isnan(x):
+                    cv2.circle(img, (int(x * W), int(y * H)), 3, color, -1)
+        vw.write(img)
+    vw.release()
+
+
 def generate(out_dir: Path, people: int = 4, sessions: int = 2, repeats: int = 3, seed: int = 0,
-             free_seconds: float = 60.0) -> Path:
+             free_seconds: float = 60.0, videos: bool = False) -> Path:
     rng = np.random.default_rng(seed)
     root = out_dir / "meme-recorder"
     lm_dir = out_dir / "landmarks"
@@ -321,6 +341,8 @@ def generate(out_dir: Path, people: int = 4, sessions: int = 2, repeats: int = 3
                 lm = make_clip(tgt, 4500, 1000, 3200, person, cam, rng)
                 cid = f"{pid}_{k:02d}_{prompt}"
                 lm.save(lm_dir / f"{cid}.npz")
+                if videos:
+                    render_video(lm, root / "data/participants" / pid / "clips" / f"{cid}.mp4")
                 rows.append(dict(clip_id=cid, person_id=f"person{p + 1}", participant_id=pid,
                                  session_id=sid, prompt_id=prompt, kind=kind, label=label,
                                  looks_like=ll, status="ok", protocol_version="2026.3",
@@ -336,6 +358,8 @@ def generate(out_dir: Path, people: int = 4, sessions: int = 2, repeats: int = 3
             lm = make_clip("neutral", free_seconds * 1000, np.nan, np.nan, person, cam, rng, segs)
             cid = f"{pid}_free"
             lm.save(lm_dir / f"{cid}.npz")
+            if videos:
+                render_video(lm, root / "data/participants" / pid / "clips" / f"{cid}.mp4")
             rows.append(dict(clip_id=cid, person_id=f"person{p + 1}", participant_id=pid,
                              session_id=sid, prompt_id="free_60s", kind="free", label="no_meme",
                              looks_like="", status="ok", protocol_version="2026.3",
@@ -354,8 +378,9 @@ def main(argv=None):
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--free-seconds", type=float, default=60)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--videos", action="store_true", help="also render simple mp4s (slower)")
     a = ap.parse_args(argv)
-    man = generate(Path(a.out), a.people, a.sessions, a.repeats, a.seed, a.free_seconds)
+    man = generate(Path(a.out), a.people, a.sessions, a.repeats, a.seed, a.free_seconds, a.videos)
     print(f"wrote {man}\nuse with: --set paths.recorder_root={Path(a.out) / 'meme-recorder'} "
           f"paths.manifest={man} paths.landmarks={Path(a.out) / 'landmarks'}")
 

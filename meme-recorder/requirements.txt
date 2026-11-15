@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pyyaml>=6.0
+opencv-python-headless>=4.8,<5   # OpenCV 5 moved the face detector (CascadeClassifier) out of the main package
+numpy
