@@ -4,6 +4,8 @@
 # Before this: record, then in meme-recorder run `python tools/build_manifest.py`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# hide MediaPipe/LiteRT start-up chatter (one block per clip); real errors still show
+exec 2> >(grep --line-buffered -v -E '^(W0000|I0000|INFO: |WARNING: \[model_load|WARNING: All log messages)' >&2)
 CFG=configs/mac.yaml
 NPEOPLE=$(python -c "from memepose.config import load_config; from memepose.manifest import load_manifest; print(load_manifest(load_config('$CFG')).person_id.nunique())")
 SPLIT=$([ "$NPEOPLE" -ge 2 ] && echo lopo || echo loso)
