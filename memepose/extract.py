@@ -193,6 +193,9 @@ def main(argv=None):
     import pandas as pd
     man_path = Path(args.manifest) if args.manifest else cfg.path("manifest")
     df = pd.read_csv(man_path, dtype={"clip_id": str})
+    retired = cfg["manifest"].get("retired_labels", [])
+    if "label" in df.columns and retired:  # memes no longer in the protocol
+        df = df[~df["label"].isin(retired)]
     root = cfg.path("recorder_root")
     out_dir = Path(args.out) if args.out else cfg.path("landmarks")
     out_dir.mkdir(parents=True, exist_ok=True)
