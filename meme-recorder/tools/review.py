@@ -20,7 +20,7 @@ VALID = {"ok", "ok_override", "rejected", "qc_failed"}
 
 
 def all_clips():
-    for f in sorted((DATA / "participants").glob("P*/clips/*.json")):
+    for f in sorted((DATA / "participants").glob("*/clips/*.json")):
         yield f, json.loads(f.read_text())
 
 

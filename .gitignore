@@ -23,6 +23,7 @@ meme-recorder/data_test/
 meme-recorder/.backup_before_no_ids/
 meme-recorder/.venv/
 meme-recorder/.admin_token
+meme-recorder/.station
 meme-recorder/config/meme_images/*.jpg
 meme-recorder/config/meme_images/*.jpeg
 meme-recorder/config/meme_images/*.gif

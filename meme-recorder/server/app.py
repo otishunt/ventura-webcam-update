@@ -37,6 +37,9 @@ DATA_DIR = Path(os.environ.get("MEME_DATA_DIR", ROOT / "data")).resolve()
 PARTICIPANTS_DIR = DATA_DIR / "participants"
 CONSENT_DIR = DATA_DIR / "consent"          # names live ONLY here
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+# Short name of this recording computer (e.g. initials). New participant IDs get it as a
+# prefix (CA-P001) so recordings from several laptops can be merged without ID clashes.
+STATION = re.sub(r"[^A-Z0-9]", "", os.environ.get("MEME_STATION", "").upper())[:8]
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 
 PARTICIPANTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,7 +156,7 @@ def load_protocol() -> dict:
     return {"protocol_version": str(cfg.get("protocol_version", "0")), "prompts": prompts}
 
 
-PID_RE = re.compile(r"^P\d{3,}$")
+PID_RE = re.compile(r"^(?:[A-Z0-9]{1,8}-)?P\d{3,}$")  # P001, or CA-P001 with a station prefix
 
 
 def participant_dir(pid: str) -> Path:
@@ -279,8 +282,10 @@ def create_participant(body: NewParticipant):
     code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
     salt = secrets.token_hex(8)
     with _id_lock:
-        nums = [int(p.name[1:]) for p in PARTICIPANTS_DIR.iterdir() if PID_RE.match(p.name)]
-        pid = f"P{(max(nums) + 1) if nums else 1:03d}"
+        prefix = f"{STATION}-" if STATION else ""
+        own = re.compile(rf"^{re.escape(prefix)}P(\d{{3,}})$")
+        nums = [int(m.group(1)) for p in PARTICIPANTS_DIR.iterdir() if (m := own.match(p.name))]
+        pid = f"{prefix}P{(max(nums) + 1) if nums else 1:03d}"
         pdir = PARTICIPANTS_DIR / pid
         (pdir / "clips").mkdir(parents=True)
         write_json(pdir / "participant.json", {
@@ -292,6 +297,7 @@ def create_participant(body: NewParticipant):
             "resume_code_hash": hash_code(code, salt),
             "withdrawn": False,
             "person_id": same_name[0] if same_name else pid,
+            "station": STATION,
             "sessions": [],
         })
 

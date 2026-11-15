@@ -69,6 +69,46 @@ uvicorn server.app:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 Use `--workers 1`. Participant IDs are assigned under an in-process lock.
 
+## Recording on several laptops
+
+Teammates can record on their own laptops and send the recordings to the main computer
+(Otis's Mac). This keeps the consent promise: videos only move directly between team
+computers, never through GitHub, cloud drives, email or chat.
+
+**On each teammate's laptop (once):**
+1. Install ffmpeg (`brew install ffmpeg`) and clone the repo:
+   `git clone https://github.com/otishunt/ventura-webcam-update.git`
+2. Get the meme images from Otis by AirDrop and put them in `config/meme_images/`. They are
+   git-ignored. Without them, the recorder shows only the text instructions.
+3. Double-click `meme-recorder/run_local.command`. The first time, it asks for a **station
+   name**: use your initials, and make it different on every laptop. New participant IDs
+   then start with it (`CA-P001`), so they never clash with other laptops.
+
+**Each time you record:** run `git pull` first so every laptop uses the same protocol, then
+record as usual. Sign with exactly the same name every time, on every laptop.
+
+**Sending recordings to the main computer:**
+```bash
+cd meme-recorder && python3 tools/export_recordings.py   # -> ~/Desktop/meme-recordings-<station>-<date>.zip
+```
+AirDrop the zip (or use a USB stick) to the main computer. It holds videos *and* the names
+from the consent records, so never email it, upload it, or put it in a shared drive.
+
+**On the main computer:**
+```bash
+cd meme-recorder && source .venv/bin/activate
+python tools/import_recordings.py ~/Downloads/meme-recordings-CA-2026-11-16.zip --dry-run   # preview
+python tools/import_recordings.py ~/Downloads/meme-recordings-CA-2026-11-16.zip
+python tools/build_manifest.py
+```
+- **Checks:** every file's checksum is verified before anything is copied.
+- **Re-exporting is safe:** only new clips are added.
+- **Linking:** one person's sessions on different laptops are linked into one `person_id`
+  by their signed name.
+
+After a successful import, delete the zip on both laptops. A teammate can also delete
+their local `data/` folder, since the main computer now holds it.
+
 ## Data layout
 
 ```
@@ -107,6 +147,8 @@ python tools/build_manifest.py        # CSV of usable clips, no names, withdrawn
 python tools/review.py                # list flagged clips
 python tools/review.py CLIP_ID rejected
 python tools/withdraw.py P014         # permanently delete a participant's videos
+python tools/export_recordings.py     # pack this laptop's recordings into a zip
+python tools/import_recordings.py X.zip   # merge a teammate's zip on the main computer
 ```
 
 ## Adding memes later

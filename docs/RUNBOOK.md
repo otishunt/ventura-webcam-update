@@ -51,6 +51,9 @@ Only the **crops** go to Delta (`work/crops`), never the videos.
 ## 1. Record
 
 In this repo's `meme-recorder/` folder, double-click `run_local.command` and record.
+Teammates can record on their own laptops and send the recordings to the main Mac as a zip,
+by AirDrop or USB only (`tools/export_recordings.py` → `tools/import_recordings.py`). See
+[Recording on several laptops](../meme-recorder/README.md#recording-on-several-laptops).
 The first launch after the move rebuilds its Python environment (`.venv`), which takes a
 minute. Then build the manifest:
 ```bash
