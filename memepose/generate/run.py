@@ -69,7 +69,10 @@ def cmd_edit(cfg, gen_cfg, a) -> int:
     if todo.empty:
         return 0
 
-    editor = make_editor(gen_cfg, a.backend, cpu_offload=a.cpu_offload)
+    editor = make_editor(gen_cfg, a.backend, cpu_offload=a.cpu_offload,
+                         low_memory=True if a.low_memory else None)
+    if hasattr(editor, "prepare"):
+        editor.prepare(list(todo.prompt))
     checker = None
     if a.checks != "none":
         from .checks import ImageLandmarker
@@ -152,6 +155,8 @@ def main(argv=None):
     ap.add_argument("--num-shards", type=int, default=1)
     ap.add_argument("--checks", choices=["mediapipe", "none"], default="mediapipe")
     ap.add_argument("--cpu-offload", action="store_true", help="lower GPU memory, slower (CUDA only)")
+    ap.add_argument("--low-memory", action="store_true",
+                    help="encode prompts first, then load the image model (automatic on Apple GPUs)")
     ap.add_argument("--set", nargs="*")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
