@@ -24,10 +24,7 @@ meme-recorder/.backup_before_no_ids/
 meme-recorder/.venv/
 meme-recorder/.admin_token
 meme-recorder/.station
-meme-recorder/config/meme_images/*.jpg
-meme-recorder/config/meme_images/*.jpeg
-meme-recorder/config/meme_images/*.gif
-meme-recorder/config/meme_images/*.webp
-meme-recorder/config/meme_images/*.png
+meme-recorder/exports/
+*.zip
 *.jsonl
 .admin_token

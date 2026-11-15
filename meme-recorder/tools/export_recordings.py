@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack this computer's recordings into one zip, to hand to the main computer.
 
-    python tools/export_recordings.py                 # -> ~/Desktop/meme-recordings-<station>-<date>.zip
+    python tools/export_recordings.py                 # -> exports/meme-recordings-<station>-<date>.zip
     python tools/export_recordings.py --include-raw   # also the original browser .webm files (2x bigger)
 
 The zip holds each participant's folder (participant.json, clips/*.mp4 + *.json) plus their
@@ -43,8 +43,9 @@ def main():
     a = ap.parse_args()
 
     station = station_name()
+    # default: meme-recorder/exports/ (git-ignored). Not the Desktop: iCloud or OneDrive may sync it.
     out = Path(a.out).expanduser() if a.out else (
-        Path.home() / "Desktop" / f"meme-recordings-{station}-{dt.date.today().isoformat()}.zip")
+        ROOT / "exports" / f"meme-recordings-{station}-{dt.date.today().isoformat()}.zip")
     pdirs = [p for p in sorted((DATA / "participants").iterdir()) if (p / "participant.json").exists()]
     if not pdirs:
         raise SystemExit("No recordings on this computer yet.")
@@ -78,7 +79,7 @@ def main():
     tmp.replace(out)
     mb = out.stat().st_size / 1e6
     print(f"Exported {len(pids)} participant(s), {n_clips} clips ({mb:.0f} MB) from station '{station}' to:\n  {out}")
-    print("Send it to the main computer by AirDrop or USB stick only (it holds videos and names), "
+    print("Send it to the main computer by AirDrop or a USB stick only (it holds videos and names), "
           "then delete it here once it has been imported.")
 
 
