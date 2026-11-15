@@ -1,0 +1,177 @@
+# Recording protocol. The app reads this file on every request, so edits take
+# effect without restarting the server.
+#
+# ADDING A MEME LATER:
+#   1. Add an entry under `memes` with a new, never-reused `id`.
+#   2. Drop its reference image into config/meme_images/ (about 600-800 px
+#      wide, JPG). If the image is missing, the instruction text is shown.
+#   3. Bump `protocol_version`.
+#   Returning participants who log in with their ID + resume code are asked
+#   only for the prompts they have not recorded yet.
+#
+# RETIRING A PROMPT: set `active: false` (never delete or reuse an id once
+# real participants have recorded it; old clips still reference it).
+#
+# LABEL CONVENTION: "left"/"right" always mean the PARTICIPANT'S OWN left or
+# right. The preview is mirrored like a selfie camera, but the saved video is
+# NOT mirrored. None of the current memes depend on direction: side-eye and
+# pointing sideways accept either side.
+
+protocol_version: "2026.4"   # 2026.4: retired success_fist, chill_guy; added pure_cinema
+
+defaults:
+  clip_seconds: 4.5   # total clip length
+  cue_on: 1.0         # seconds of neutral face before the "do it now" cue
+  cue_off: 3.2        # when the "relax back to neutral" cue appears
+  repeats: 3          # clips per participant for each meme (11 active memes x 3 = 33 clips)
+
+memes:
+  - id: success_fist
+    name: "Success Kid"
+    short: "Clench your fist, determined face"
+    instruction: "Hold up a clenched fist in front of your chest and scrunch your face into a determined, 'nailed it' look with pursed lips."
+    image: success_fist.jpg
+    active: false   # retired in 2026.4 (image removed)
+
+  - id: arms_raised
+    name: "Breaking free"
+    short: "Both arms straight up!"
+    instruction: "Throw both arms straight up over your head with clenched fists, like you just broke free from chains. Keep your hands in the frame if you can."
+    image: arms_raised.jpg
+    active: true
+
+  - id: chill_guy
+    name: "Chill Guy"
+    short: "Totally relaxed, smug smile"
+    instruction: "Drop your shoulders, put your hands in your pockets or let your arms hang relaxed at your sides, and give a small, content, 'I'm just a chill guy' smirk."
+    image: chill_guy.jpg
+    active: false   # retired in 2026.4 (image removed)
+
+  - id: point_at_self
+    name: "Who, me?"
+    short: "Point at yourself, surprised"
+    instruction: "Point at your own chest with one finger, raise your eyebrows, and look surprised, like someone just called on you."
+    image: point_at_self.jpg
+    active: true
+
+  - id: sleepy_squint
+    name: "Lightskin stare dog"
+    short: "Half-closed eyes, content"
+    instruction: "Let your eyelids droop halfway, lift your chin a little, and keep your mouth closed and relaxed, like you're blissfully content."
+    image: sleepy_squint.jpg
+    active: true
+
+  - id: pinch_grin
+    name: "Reddit mod"
+    short: "Pinched fingers by your face, sly grin"
+    instruction: "Raise one hand next to your face with your thumb and index finger pinched together, lower your eyebrows, and give a wide, sly grin."
+    image: pinch_grin.jpg
+    active: true
+
+  - id: timeout
+    name: "Timeout"
+    short: "Make a T with your hands"
+    instruction: "Make a T shape in front of your chest: one hand flat and horizontal on top, the other hand vertical underneath it. Keep a serious face."
+    image: timeout.jpg
+    active: true
+
+  - id: hands_on_head
+    name: "Shocked, hands on head"
+    short: "Hands on head, jaw drop"
+    instruction: "Put both hands on the sides of your head, open your eyes as wide as you can, raise your eyebrows, and drop your jaw in shock."
+    image: hands_on_head.jpg
+    active: true
+
+  - id: shrek_side_eye
+    name: "Shrek side-eye"
+    short: "Side-eye with a raised eyebrow"
+    instruction: "Tilt your head down slightly, slide your eyes to either side, raise one eyebrow, and give a sly, knowing half-smile."
+    image: shrek_side_eye.jpg
+    active: true
+
+  - id: holding_laugh
+    name: "Try not to laugh (Speed)"
+    short: "Eyes shut, hold in a laugh"
+    instruction: "Squeeze your eyes tightly shut and press your lips together hard, like you're desperately trying not to laugh."
+    image: holding_laugh.jpg
+    active: true
+
+  - id: confused_tilt
+    name: "Swaggy P ???"
+    short: "Head tilt, confused smile"
+    instruction: "Tilt your head to the side, squint a little, and give a confused, disbelieving half-smile, like you have no idea what just happened."
+    image: confused_tilt.jpg
+    active: true
+
+  - id: point_sideways
+    name: "Pointing Wojak"
+    short: "Point to the side, mouth open"
+    instruction: "Point off to one side with your arm out, open your mouth wide, and raise your eyebrows, like you just spotted something exciting."
+    image: point_sideways.jpg
+    active: true
+
+  - id: pure_cinema
+    name: "Absolute Cinema"
+    short: "Both open hands up beside your head"
+    instruction: "Raise both hands beside your head with your elbows bent, palms facing the camera and fingers spread wide, like you're presenting a masterpiece. Keep a calm, satisfied face with your lips pressed together."
+    image: pure_cinema.jpeg
+    active: true
+
+# Everyday movements labeled `no_meme`. Many are deliberately close to a meme.
+# These tricky negatives are what keep the live demo from triggering by
+# accident. `looks_like` records which memes each one resembles, so you can
+# measure false triggers on each pair.
+negatives:
+  - id: neg_talk
+    short: "Talk to the camera"
+    instruction: "Talk to the camera about what you ate today (no audio is recorded)."
+    looks_like: [confused_tilt]
+    repeats: 1
+  - id: neg_stretch
+    short: "Stretch"
+    instruction: "Stretch your arms up like you just woke up, then put them behind your head."
+    looks_like: [arms_raised, hands_on_head, pure_cinema]
+    repeats: 1
+  - id: neg_touch_face
+    short: "Touch your face"
+    instruction: "Scratch your cheek, rest your chin on your hand, or fix your hair."
+    looks_like: [pinch_grin, hands_on_head]
+    repeats: 1
+  - id: neg_glance
+    short: "Look around"
+    instruction: "Glance around the room, turning your head naturally as if someone called your name."
+    looks_like: [shrek_side_eye, confused_tilt]
+    repeats: 1
+  - id: neg_rub_eyes
+    short: "Rub your eyes and blink"
+    instruction: "Rub your eyes, then blink slowly a few times like you're tired."
+    looks_like: [sleepy_squint, holding_laugh]
+    repeats: 1
+  - id: neg_wave
+    short: "Wave"
+    instruction: "Wave hello at the camera, then point at something on your screen."
+    looks_like: [point_sideways, point_at_self, pure_cinema]
+    repeats: 1
+  - id: neg_cross_arms
+    short: "Cross your arms"
+    instruction: "Cross your arms over your chest, then scratch your chest or adjust your shirt."
+    looks_like: [timeout, point_at_self]
+    repeats: 1
+  - id: neg_sit_still
+    short: "Sit relaxed and neutral"
+    instruction: "Just sit back and relax with a neutral face, as if you're watching a video."
+    looks_like: []   # was chill_guy (retired); still a useful neutral negative
+    repeats: 1
+  - id: neg_drink
+    short: "Take a sip"
+    instruction: "Take a sip of a drink (or pretend to)."
+    looks_like: [pinch_grin]
+    repeats: 1
+
+# One long clip of ordinary behavior. This becomes the test set for the
+# false-triggers-per-minute metric.
+free_segment:
+  id: free_behavior
+  seconds: 60
+  instruction: "For one minute, just act normally: check your phone, look around, talk, fidget. Please don't do any of the meme poses."
+  active: true

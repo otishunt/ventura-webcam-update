@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meme Pose Recorder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+
+  <!-- WELCOME -->
+  <section class="screen" data-screen="welcome">
+    <h1>Meme Pose Recorder</h1>
+    <p class="lead">Help train a model that recognizes which meme you're imitating on a live webcam.
+      You'll record short clips of yourself doing meme poses and everyday movements.
+      It takes about 10 to 15 minutes. Video only, no audio.</p>
+    <div class="actions">
+      <button class="primary big" data-go="consent">Start</button>
+    </div>
+  </section>
+
+  <!-- CONSENT -->
+  <section class="screen" data-screen="consent">
+    <h1 id="consent-title">Consent</h1>
+    <p class="muted" id="consent-study"></p>
+    <div id="consent-body" class="consent-body"></div>
+    <h2>Please confirm each statement</h2>
+    <div id="consent-agreements" class="agreements"></div>
+    <label class="field">
+      <span>Type your full name to sign</span>
+      <input id="consent-name" type="text" autocomplete="name">
+    </label>
+    <p class="muted small">Date: <span id="consent-date"></span> · Consent form version <span id="consent-version"></span></p>
+    <p class="error" id="consent-error"></p>
+    <div class="actions">
+      <button data-go="welcome">Back</button>
+      <button class="primary" id="consent-submit" disabled>I agree, continue</button>
+    </div>
+  </section>
+
+
+
+  <!-- SETUP -->
+  <section class="screen" data-screen="setup">
+    <h1>Camera setup</h1>
+    <p>Sit so your <strong>head and shoulders</strong> fit inside the guide, with some room above your head for arm poses.
+       Face a light source if you can, not a window behind you.</p>
+    <div class="stage">
+      <video id="setup-video" class="mirror" autoplay playsinline muted></video>
+      <div class="guide"></div>
+      <div class="meter"><span>Brightness</span><div class="bar"><i id="bright-bar"></i></div><em id="bright-label">…</em></div>
+    </div>
+    <p class="error" id="setup-error"></p>
+    <label class="field"><span>Camera</span><select id="camera-select"></select></label>
+    <div class="grid2">
+      <label class="field"><span>Where are you recording?</span>
+        <select id="d-setting"><option value="">Choose…</option><option>In person with the team</option><option>Remote, on my own computer</option></select></label>
+      <label class="field"><span>Camera type</span>
+        <select id="d-camera"><option value="">Choose…</option><option>Laptop built-in</option><option>External webcam</option><option>Phone</option></select></label>
+      <label class="field"><span>Lighting</span>
+        <select id="d-lighting"><option value="">Choose…</option><option>Daylight / window</option><option>Indoor overhead</option><option>Desk lamp</option><option>Dim</option><option>Mixed</option></select></label>
+      <label class="field"><span>Wearing glasses right now?</span>
+        <select id="d-glasses"><option value="">Choose…</option><option>No</option><option>Yes</option></select></label>
+    </div>
+    <p class="muted small">These details help us check the model works in different conditions. They are optional.</p>
+    <div class="actions">
+      <button class="primary" id="setup-start" disabled>Start recording session</button>
+    </div>
+  </section>
+
+  <!-- PROMPT / RECORD -->
+  <section class="screen" data-screen="prompt">
+    <div class="topbar">
+      <span id="prog-label"></span>
+      <div class="progress"><i id="prog-bar"></i></div>
+      
+    </div>
+    <div class="prompt-layout">
+      <div class="ref">
+        <div class="kind" id="p-kind"></div>
+        <h2 id="p-name"></h2>
+        <img id="p-image" alt="">
+        <p id="p-instruction"></p>
+        <ol class="howto">
+          <li>Start with a <strong>neutral face</strong>.</li>
+          <li>When the screen says <strong>NOW</strong>, do it and hold it.</li>
+          <li>When it says <strong>RELAX</strong>, go back to neutral.</li>
+        </ol>
+      </div>
+      <div class="stage">
+        <video id="rec-video" class="mirror" autoplay playsinline muted></video>
+        <div class="guide"></div>
+        <div class="overlay" id="rec-overlay"></div>
+        <div class="recdot" id="rec-dot">REC</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="p-skip">Skip this one</button>
+      <button class="primary big" id="p-record">Record <span class="kbd">space</span></button>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section class="screen" data-screen="review">
+    <h1>How did that look?</h1>
+    <div class="stage review">
+      <video id="review-video" class="mirror" playsinline controls loop></video>
+    </div>
+    <div id="review-qc" class="qc"></div>
+    <div class="actions" id="review-actions">
+      <button id="review-redo">Redo</button>
+      <button class="primary" id="review-keep">Keep it</button>
+    </div>
+    <div class="actions hidden" id="qc-actions">
+      <button class="primary" id="qc-redo">Redo (recommended)</button>
+      <button id="qc-keep">Keep anyway</button>
+    </div>
+  </section>
+
+  <!-- DONE -->
+  <section class="screen" data-screen="done">
+    <h1>All done, thank you!</h1>
+    <p id="done-msg">Every clip for this session has been recorded and saved.</p>
+    <p class="muted">To withdraw at any time, email <span id="done-contact"></span> with the name you signed with.
+      Your videos will be deleted.</p>
+  </section>
+
+</main>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time setup on Delta: conda env + CUDA torch + MediaPipe models + tests.
-# Run from the repo root inside a short CPU interactive session (see README), not on the login node.
+# Run from the repo root inside a short CPU interactive session (see docs/RUNBOOK.md), not on the login node.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if ! command -v conda >/dev/null; then
@@ -16,5 +16,5 @@ conda activate memepose
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 bash scripts/download_mediapipe_models.sh
 python -m pytest -q
-mkdir -p logs
+mkdir -p logs /work/hdd/bjeg/meme-pose && chmod 700 /work/hdd/bjeg/meme-pose
 echo "done. In job scripts: conda activate memepose"

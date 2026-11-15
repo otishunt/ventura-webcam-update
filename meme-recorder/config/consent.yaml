@@ -1,0 +1,63 @@
+# Consent form shown to every participant before any recording.
+# If you change ANY wording, bump `version`. Every consent record stores the
+# version and a hash of the exact text the participant agreed to.
+#
+# TODO before recording: fill in the placeholders in [BRACKETS].
+
+version: "1.4"
+title: "Consent to Participate: Meme Pose Recognition Dataset"
+study_name: "DATA 4620 Final Project: Live Meme Pose Recognition"
+team: "Otis, Carson, Minh, Kevin"
+contact: "ophunt@calpoly.edu"
+retention: "delete at end of Fall Semester 2026"
+
+paragraphs:
+  - >-
+    What you will do: You will use your webcam to record short video clips
+    (about 4 seconds each) of yourself imitating popular meme poses and doing
+    everyday movements such as talking, stretching, or looking around. A full
+    session takes about 10 to 15 minutes. Only video is recorded. No audio is
+    captured.
+  - >-
+    How your videos will be used: Your videos will be used only to train and
+    evaluate deep learning models for this course project. They will not be
+    used for any other project, product, or purpose.
+  - >-
+    Who can access your videos: Only members of the project team listed above
+    can access your videos. They are stored and processed only on computers
+    controlled by the project team. They are not stored on cloud services,
+    labeling platforms, or any third party. When you record remotely, your
+    videos travel to our computer over an encrypted connection through
+    Cloudflare, a web network provider, which passes them along but does not
+    keep them.
+  - >-
+    Your videos will never be shared externally. No video, still frame, or
+    image of you will be published, posted online, included in a public
+    dataset or code repository, shown in the final report or presentation, or
+    given to anyone outside the project team. Reports and presentations will
+    include only aggregate results such as accuracy numbers.
+  - >-
+    Privacy: Your name appears only on this consent record, which is stored
+    separately from your videos. Your videos are labeled only with a random
+    code, never your name.
+  - >-
+    Retention: All videos and anything derived from them, such as extracted
+    face or body landmarks, will be permanently deleted by {retention}.
+  - >-
+    Participation is voluntary: You can skip any prompt and stop at any time.
+    You can withdraw later by emailing {contact} with the name you sign below. If
+    you withdraw, your videos and all data derived from them will be deleted
+    and excluded from all future training.
+
+# Every box here must be checked before the participant can continue.
+agreements:
+  - id: age_18
+    text: "I am 18 years of age or older."
+  - id: recording
+    text: "I agree to be video recorded (no audio) for this study."
+  - id: training_use
+    text: "I agree that my videos may be used to train and evaluate deep learning models for this course project only."
+  - id: no_external_sharing
+    text: "I understand that my videos will never be shared outside the project team, published, or uploaded to any public dataset, repository, or third-party service."
+  - id: voluntary_withdrawal
+    text: "I understand that participation is voluntary, that I can withdraw at any time by emailing the team with my name, and that my data will then be deleted."

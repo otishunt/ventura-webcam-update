@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recorder Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    main { max-width: 1400px; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; background: var(--panel); }
+    th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: center; white-space: nowrap; }
+    th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
+    th.rot { writing-mode: vertical-rl; transform: rotate(180deg); height: 130px; }
+    td.full { background: color-mix(in srgb, var(--good) 22%, transparent); }
+    td.part { background: color-mix(in srgb, var(--warn) 22%, transparent); }
+    td.left { text-align: left; }
+    .wrap { overflow: auto; max-height: 70vh; border-radius: 10px; border: 1px solid var(--line); }
+    .flag { color: var(--warn); }
+    .row { display: flex; gap: 10px; align-items: end; }
+    .row .field { flex: 1; margin: 0; }
+    .stats { display: flex; gap: 24px; margin: 16px 0; flex-wrap: wrap; }
+    .stats div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; }
+    .stats strong { display: block; font-size: 1.5rem; }
+    details { margin-top: 20px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Recording progress</h1>
+  <div class="row">
+    <label class="field"><span>Admin token</span><input id="tok" type="password"></label>
+    <button class="primary" id="load">Load</button>
+  </div>
+  <p class="error" id="err"></p>
+  <div id="out"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+try { $("tok").value = sessionStorage.getItem("adminTok") || ""; } catch {}
+async function load() {
+  $("err").textContent = "";
+  const tok = $("tok").value;
+  try { sessionStorage.setItem("adminTok", tok); } catch {}
+  const r = await fetch("/api/admin/summary", { headers: { "X-Admin-Token": tok } });
+  const d = await r.json();
+  if (!r.ok) { $("err").textContent = d.detail; return; }
+  const prompts = d.prompts.filter((p) => p.active);
+  const active = d.participants.filter((p) => !p.withdrawn);
+  const complete = active.filter((p) => p.remaining === 0).length;
+  const clips = Object.values(d.totals).reduce((a, b) => a + b, 0);
+  const flagged = active.reduce((a, p) => a + p.flagged.length, 0);
+  let h = `<div class="stats">
+    <div><span class="muted">Protocol</span><strong>${d.protocol_version}</strong></div>
+    <div><span class="muted">Participants</span><strong>${active.length}</strong></div>
+    <div><span class="muted">Fully complete</span><strong>${complete}</strong></div>
+    <div><span class="muted">Usable clips</span><strong>${clips}</strong></div>
+    <div><span class="muted">Flagged clips</span><strong>${flagged}</strong></div></div>`;
+  h += `<div class="wrap"><table><thead><tr><th>ID</th><th>Sessions</th><th>Setting / lighting</th>`;
+  for (const p of prompts) h += `<th class="rot" title="${p.kind}">${p.prompt_id}</th>`;
+  h += `<th>Left</th><th>Flagged</th></tr></thead><tbody>`;
+  for (const p of active) {
+    h += `<tr><td>${p.participant_id}</td><td>${p.sessions}</td><td class="left">${[p.details.setting, p.details.lighting].filter(Boolean).join(" · ")}</td>`;
+    for (const q of prompts) {
+      const c = p.counts[q.prompt_id] || { ok: 0, override: 0, failed: 0 };
+      const n = c.ok + c.override;
+      const cls = n >= q.repeats ? "full" : n > 0 ? "part" : "";
+      h += `<td class="${cls}" title="ok ${c.ok}, kept-anyway ${c.override}, failed ${c.failed}">${n}/${q.repeats}${c.failed ? ` <span class="flag">!</span>` : ""}</td>`;
+    }
+    h += `<td>${p.remaining}</td><td>${p.flagged.length}</td></tr>`;
+  }
+  h += `<tr><td><strong>Total</strong></td><td></td><td></td>`;
+  for (const q of prompts) h += `<td><strong>${d.totals[q.prompt_id] || 0}</strong></td>`;
+  h += `<td></td><td></td></tr></tbody></table></div>`;
+  const fl = active.flatMap((p) => p.flagged.map((f) => ({ ...f, pid: p.participant_id })));
+  if (fl.length) {
+    h += `<details><summary>Flagged clips (${fl.length}). Review them on the server's disk, then mark with tools/review.py.</summary><table><tr><th>Participant</th><th>Clip</th><th>Status</th><th>Flags</th></tr>`;
+    for (const f of fl) h += `<tr><td>${f.pid}</td><td class="left">${f.clip_id}</td><td>${f.status}</td><td>${f.flags.join(", ")}</td></tr>`;
+    h += `</table></details>`;
+  }
+  $("out").innerHTML = h;
+}
+$("load").addEventListener("click", load);
+if ($("tok").value) load();
+</script>
+</body>
+</html>

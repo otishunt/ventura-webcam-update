@@ -10,7 +10,7 @@ build next. Items marked **[DECIDE]** are open decisions for the team.
 
 ## 1. Project in one paragraph
 
-A live webcam system that recognizes which meme a person is imitating (12
+A live webcam system that recognizes which meme a person is imitating (11
 memes plus "no meme") and replaces the camera feed with that meme's image. The
 research angle: training data can only come from the 4 team members, so we
 use generative models to make **synthetic, appearance-randomized versions**
@@ -24,10 +24,15 @@ augmentation.
 
 - **Data:** only the 4 team members can be recorded. No outside participants.
   Consent is covered because the subjects are the researchers themselves.
-- **Compute:** NCSA Delta through the professor's ACCESS allocation. It uses Slurm, has
-  A40, A100 and H200 GPU nodes, x86_64 CPUs and no Docker (conda/venv instead). Data
-  lives on `/work/hdd/<proj>`; move it with Globus. Generation and training run there.
-  The live demo runs on an M4 MacBook.
+- **Compute:** NCSA Delta, allocation `bjeg` (CSC 4888). The professor said (2026-11-15) we
+  can use as much as we need and request more, so budget is not the constraint; queue wait
+  is. Initial deposit: 200 GPU hours (A100-equivalent; an A40 hour costs 0.5) and 200 CPU
+  core-hours, shared with the class. It uses
+  Slurm, has x86_64 CPUs and no Docker (conda instead). Only A40s are used. Extraction,
+  labels, M0/M1 and prompt prototyping run on the M4 Mac for free; Delta does only bulk
+  frame generation and M2 training, from crops copied with Globus (never the videos).
+  Expected use: ~400–800 GPU SU with Qwen at full quality, so request more hours early.
+  The live demo runs on the Mac.
 - **Deadline:** about 5 weeks from 2026-11-10 (mid-December). The proposal is done.
 - **Run everything locally:** use open-weight models on our own GPUs. Our
   consent promised videos are not sent to cloud services, so no hosted
@@ -44,7 +49,8 @@ augmentation.
 
 ## 3. What already exists (recorder app)
 
-Location on Otis's Mac: `~/Desktop/DATA 4620 Final Project/meme-recorder/`
+Location on Otis's Mac: `~/Documents/GitHub/ventura-webcam-update/meme-recorder/` (moved into the
+pipeline repo on 2026-11-15; `data/` and other participant files are git-ignored)
 
 - **Stack:** FastAPI backend plus a plain HTML/JS frontend. Clips are
   converted to 30 fps H.264 MP4 with ffmpeg. An automatic quality check uses
@@ -56,8 +62,8 @@ Location on Otis's Mac: `~/Desktop/DATA 4620 Final Project/meme-recorder/`
   is used anymore; the Cloudflare and Tailscale routes are retired.
 - **Flow:** Start → consent (consent version 1.4) → camera setup → randomized
   prompts → review and redo → done. Participant IDs exist only behind the scenes.
-- **Protocol** (`config/memes.yaml`, version `2026.3`, 46 prompts per session):
-  - 12 memes × 3 repeats
+- **Protocol** (`config/memes.yaml`, version `2026.4`, 43 prompts per session):
+  - 11 memes × 3 repeats (2026.4 retired `success_fist` and `chill_guy` and added `pure_cinema`)
   - 9 "no_meme" negatives × 1
   - one 60-second free-behavior clip
 
@@ -85,13 +91,11 @@ Location on Otis's Mac: `~/Desktop/DATA 4620 Final Project/meme-recorder/`
   and `tools/withdraw.py`.
 - **Test data:** old test data is in `data_test/`, which can be deleted.
 
-### Label set (13 classes)
+### Label set (12 classes, protocol 2026.4)
 
 | id | meme | body region that matters |
 |---|---|---|
-| success_fist | Success Kid (fist, pursed lips) | face + hand |
 | arms_raised | Breaking free (arms up, fists) | upper body |
-| chill_guy | Chill Guy (relaxed, smirk) | face + posture (hard: close to neutral) |
 | point_at_self | "Who, me?" | face + hand |
 | sleepy_squint | Lightskin stare dog (half-closed eyes) | face (hard pair with holding_laugh) |
 | pinch_grin | Reddit mod (pinched fingers, sly grin) | face + hand |
@@ -101,6 +105,7 @@ Location on Otis's Mac: `~/Desktop/DATA 4620 Final Project/meme-recorder/`
 | holding_laugh | Speed trying not to laugh | face |
 | confused_tilt | Swaggy P "???" | face + head |
 | point_sideways | Pointing Wojak | arm + face |
+| pure_cinema | "Absolute Cinema" (open hands raised beside the head) | hands + arms (hard pairs with arms_raised, hands_on_head) |
 | no_meme | 9 tricky everyday movements + 60 s free clip | — |
 
 Each negative's `looks_like` field records which memes it resembles. Use it to
@@ -138,8 +143,9 @@ Log these details in the app's setup fields.
 **Reserve a held-out test session per person** (section L7), recorded in
 conditions never used for training or generation.
 
-Rough yield: 4 people × 6 sessions × 46 clips ≈ 1,100 real clips (about 860
-meme clips, about 72 per meme).
+Rough yield: 4 people × 6 sessions × 43 clips ≈ 1,030 real clips (about 790
+meme clips, about 72 per meme). Retired memes (`success_fist`, `chill_guy`) are kept in
+`memes.yaml` as `active: false`; their already-recorded clips are skipped by the pipeline.
 
 ### L1 — Preprocess
 - Decode the MP4s. For every frame, run MediaPipe face landmarks (478 points
@@ -202,11 +208,17 @@ Pick based on:
 
 Prototype on 20 clips before scaling.
 
-**Generator fine-tuning (decided: yes).** The team wants to fine-tune a generator on our
-clips. Under leave-one-person-out this must be done **per fold**: fine-tune only on the 3
-training people, then generate that fold's synthetic data. A generator fine-tuned on all
-4 people has seen the test person, which leaks. Budget 4 fine-tunes, plus 1 for the
-new-conditions test if that generator excludes the held-out sessions.
+**Frames, not videos (decided 2026-11-14).** Generation edits single frames: peak-pose
+frames of memes, neutral moments, negative-movement peaks and free-behavior frames, all
+with the same balanced attribute grid. Backends: FLUX.2 [klein] 4B (Apache 2.0, fast) for
+comparison, Qwen-Image-Edit-2511 at full quality as the main generator now that budget
+allows it. Prompts describe the measured
+expression (feature-prompt mitigation from Seo et al. 2026, arXiv 2602.16149) and lock
+pose, hands and fingers. **Per-fold generator fine-tuning is not planned**: fine-tuning on 4 faces tends to narrow
+appearance diversity. It is affordable now, so revisit it only if the prototype shows
+expression loss that a fine-tune could fix.
+Leakage is avoided by using, in each fold, only synthetic frames whose source person is a
+training person.
 
 ### L4 — Filter and check quality (synthetic clips)
 Reject a synthetic clip if any of these checks fail:
@@ -312,15 +324,24 @@ in place of the feed. Target at least 15 frames per second end to end.
 2. Deadline: about 5 weeks (mid-December); the proposal is done.
 3. Sessions per member: as many as needed. Reserve one held-out session per person
    (`split.heldout_sessions` in the pipeline config).
-4. Generation models: **open**. Fine-tuning on our clips is wanted, and it must be per fold (L3).
+4. Generation models: Qwen-Image-Edit-2511 at full quality as the main generator, with
+   FLUX.2 [klein] for comparison; single frames, not video; 10 variants per frame.
 5. Public dataset check: **no**.
 6. M2 as the main model: **open** (recommended: yes).
-7. Demo laptop: M4 MacBook. Compute: NCSA Delta (see README for Slurm jobs).
+7. Demo laptop: M4 MacBook. Compute: NCSA Delta (see docs/RUNBOOK.md for Slurm jobs).
 8. Team: everyone can work on every part.
+9. Compute: the professor approved using as much as needed and requesting more. The Mac
+   still handles everything that fits (no queue, videos stay local).
 
-## 10. Status
-Pipeline repo: `ventura-webcam-update` (GitHub otishunt/ventura-webcam-update). It has L1
-extraction and labels, M0 rules, M1 GRU/TCN, and lopo/newcond/loso evaluation with a
-synthetic-data hook. Everything is tested on fake data. See README.md. Next: run it on the
-first real session, then build M2 (crops plus a pixel model) and the tier-2 face-editing
-pipeline with the L4 filter.
+## 10. Status (2026-11-14)
+Pipeline repo: `ventura-webcam-update` (GitHub otishunt/ventura-webcam-update). Built and
+tested on fake data (16 tests):
+- L1: extraction and refined labels
+- M0 rules and M1 GRU/TCN, evaluated with lopo/newcond/loso
+- L3/L4: crop export, a balanced attribute plan with expression-aware prompts, klein/Qwen
+  backends, and MediaPipe/finger/ITA checks with acceptance reports
+- Mac and Delta configs and Slurm jobs
+
+The recorder runs locally via `run_local.command`. **Next:** record all four people, run
+`scripts/run_mac.sh`, prototype 20 edits, then bulk generation on Delta, then build M2
+(the frame model on crops).
