@@ -3,13 +3,10 @@ data/
 *.webm
 *.mp4
 *.mov
-config/meme_images/*.jpg
-config/meme_images/*.jpeg
-config/meme_images/*.png
-config/meme_images/*.gif
-config/meme_images/*.webp
 __pycache__/
 .venv/
 *.pem
 .admin_token
 .station
+exports/
+*.zip

@@ -1,0 +1,8 @@
+# Keep Mac/Linux scripts LF and Windows scripts CRLF no matter who commits them
+# (one teammate records on Windows).
+*.sh       text eol=lf
+*.command  text eol=lf
+*.slurm    text eol=lf
+*.py       text eol=lf
+*.yaml     text eol=lf
+*.bat      text eol=crlf

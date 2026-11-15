@@ -2,7 +2,8 @@
 
 Fill in where each image came from (e.g. its Know Your Meme page) so the
 report can cite it. Images are used only as on-screen reference prompts for
-participants and are not redistributed.
+participants. They are kept in the team's repository only so every recording laptop shows
+the same prompts (keep the repository private); they are not published anywhere else.
 
 | file | meme | source URL |
 |---|---|---|

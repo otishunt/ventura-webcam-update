@@ -79,7 +79,7 @@ reachable only from the Mac it runs on.
   outfits, glasses and distances.
 - **Held-out sessions:** one session per person is recorded in conditions used nowhere
   else and kept as a test set.
-- **Several laptops:** teammates can record on their own laptops. Each laptop prefixes its
+- **Several laptops (Mac or Windows):** teammates can record on their own laptops. Each laptop prefixes its
   participant IDs (e.g. `CA-P001`), and recordings reach the main Mac as a checksummed zip,
   by AirDrop or USB only, never through GitHub or a cloud drive. The import links each
   person's sessions across laptops by their signed name.
@@ -208,8 +208,9 @@ The target is at least 15 frames per second end to end on an M4 MacBook.
   skin tone objectively, hand-audit samples, and report rejection rates per attribute.
 - **Claims:** four people cannot establish demographic fairness. The claim is limited to
   *robustness to appearance variation under controlled tests*.
-- **Meme images** are used only as on-screen prompts, are not redistributed (git-ignored),
-  and are credited in `meme-recorder/config/meme_images/SOURCES.md`.
+- **Meme images** are used only as on-screen prompts, kept in the repository so every
+  recording laptop shows the same ones (the repository should be private), and credited in
+  `meme-recorder/config/meme_images/SOURCES.md`.
 
 ## Status
 

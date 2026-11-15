@@ -75,24 +75,45 @@ Teammates can record on their own laptops and send the recordings to the main co
 (Otis's Mac). This keeps the consent promise: videos only move directly between team
 computers, never through GitHub, cloud drives, email or chat.
 
-**On each teammate's laptop (once):**
+**On each teammate's laptop (once).** On a **Mac**:
 1. Install ffmpeg (`brew install ffmpeg`) and clone the repo:
    `git clone https://github.com/otishunt/ventura-webcam-update.git`
-2. Get the meme images from Otis by AirDrop and put them in `config/meme_images/`. They are
-   git-ignored. Without them, the recorder shows only the text instructions.
-3. Double-click `meme-recorder/run_local.command`. The first time, it asks for a **station
-   name**: use your initials, and make it different on every laptop. New participant IDs
-   then start with it (`CA-P001`), so they never clash with other laptops.
+2. Double-click `meme-recorder/run_local.command`.
+
+On **Windows**:
+1. Install [Python 3](https://www.python.org/downloads/) and tick **"Add python.exe to
+   PATH"** in the installer. Also install [Git for Windows](https://git-scm.com/download/win).
+   Then, in a Terminal/PowerShell window, run `winget install Gyan.FFmpeg`, and open a *new*
+   window afterwards so ffmpeg is found.
+2. Clone the repo into a folder that **OneDrive does not sync**, e.g.
+   `git clone https://github.com/otishunt/ventura-webcam-update.git C:\meme\ventura-webcam-update`.
+   OneDrive often backs up Desktop and Documents, which would upload the videos to
+   Microsoft's cloud and break the consent promise.
+3. Double-click `meme-recorder\run_local.bat`. The first run sets up Python packages
+   automatically (a minute or two). Use Chrome or Edge, and allow the camera; if it's
+   blocked, check Settings → Privacy & security → Camera.
+
+On both:
+- **Station name.** The first launch asks for one: use your initials, and make it different
+  on every laptop. New participant IDs then start with it (`CA-P001`), so they never clash
+  with other laptops.
+- **Meme images.** Check that `config/meme_images/` holds the meme images. If your clone
+  doesn't have them, get them from Otis and put them there. Without them, the recorder
+  shows only the text instructions.
 
 **Each time you record:** run `git pull` first so every laptop uses the same protocol, then
 record as usual. Sign with exactly the same name every time, on every laptop.
 
 **Sending recordings to the main computer:**
 ```bash
-cd meme-recorder && python3 tools/export_recordings.py   # -> ~/Desktop/meme-recordings-<station>-<date>.zip
+cd meme-recorder
+python3 tools/export_recordings.py                   # Mac
+.venv\Scripts\python tools\export_recordings.py      # Windows
 ```
-AirDrop the zip (or use a USB stick) to the main computer. It holds videos *and* the names
-from the consent records, so never email it, upload it, or put it in a shared drive.
+This writes `exports/meme-recordings-<station>-<date>.zip`; the `exports/` folder is
+git-ignored. Send the zip by AirDrop from a Mac, or a USB stick from Windows (exFAT works on
+both). It holds videos *and* the names from the consent records, so never email it, upload
+it, or put it in a shared drive.
 
 **On the main computer:**
 ```bash
