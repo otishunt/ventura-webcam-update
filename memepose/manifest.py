@@ -9,6 +9,7 @@ Adds these columns:
 from __future__ import annotations
 
 import re
+import sys
 import warnings
 from pathlib import Path
 
@@ -72,7 +73,7 @@ def load_manifest(cfg: Config, path: str | Path | None = None) -> pd.DataFrame:
     retired = label.isin(mcfg.get("retired_labels", []))
     if retired.any():
         print(f"skipping {int(retired.sum())} clips of retired memes "
-              f"({', '.join(sorted(set(label[retired])))})")
+              f"({', '.join(sorted(set(label[retired])))})", file=sys.stderr)
         df, label, is_free = df[~retired].copy(), label[~retired], is_free[~retired]
     unknown = sorted(set(label) - set(classes))
     if unknown:

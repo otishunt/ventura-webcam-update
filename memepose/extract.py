@@ -193,6 +193,9 @@ def main(argv=None):
     import pandas as pd
     man_path = Path(args.manifest) if args.manifest else cfg.path("manifest")
     df = pd.read_csv(man_path, dtype={"clip_id": str})
+    retired = cfg["manifest"].get("retired_labels", [])
+    if "label" in df.columns and retired:  # memes no longer in the protocol
+        df = df[~df["label"].isin(retired)]
     root = cfg.path("recorder_root")
     out_dir = Path(args.out) if args.out else cfg.path("landmarks")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -208,11 +211,14 @@ def main(argv=None):
         if out_path.exists() and not args.overwrite:
             continue
         jobs.append((r.clip_id, str(mp4), str(out_path), kwargs))
+    n_done = len(df) - len(jobs)
+    n_left = len(jobs)
     if args.limit:
         jobs = jobs[: args.limit]
     workers = args.workers if args.workers is not None else ex["workers"]
     workers = workers or max(1, available_cpus() - 1)
-    print(f"{len(jobs)} clips to extract ({len(df) - len(jobs)} already done) with {workers} workers",
+    later = f", {n_left - len(jobs)} left for later (--limit)" if len(jobs) < n_left else ""
+    print(f"{len(jobs)} clips to extract ({n_done} already done{later}) with {workers} workers",
           flush=True)
     if not jobs:
         return
