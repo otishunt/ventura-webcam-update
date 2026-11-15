@@ -2,7 +2,8 @@
 # 20-ish frame image-edit prototype on the Mac: 2 source frames per meme (+ no_meme), 1 edit each,
 # FLUX.2 [klein] 4B on the Apple GPU, then the L4 checks and acceptance tables.
 #   conda activate memepose && bash scripts/prototype_edits.sh
-# First run downloads the model (~15 GB, once). Needs ~24 GB+ of Mac memory to run comfortably.
+# First run downloads the model (~15 GB, once). On Apple GPUs it runs in two-stage low-memory
+# mode (~8-9 GB at a time), so a 16 GB Mac works; close other big apps first.
 # Look at the results yourself:  open work/synthetic/proto/images
 # (Don't share these images with any AI tool: they're edits of real recordings.)
 set -euo pipefail
