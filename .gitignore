@@ -1,7 +1,6 @@
 # participant data and everything derived from it stays off git
 work/
 runs/
-/models/
 data/
 *.npz
 *.npy
