@@ -2,7 +2,7 @@
 # Delta only needs the crops exported on the Mac (work/crops), not the videos.
 base: pipeline.yaml
 paths:
-  mediapipe_models: /work/hdd/bjeg/meme-pose/models/mediapipe
+  # mediapipe_models: default models/mediapipe (committed in the repo)
   landmarks: /work/hdd/bjeg/meme-pose/work/landmarks
   labels: /work/hdd/bjeg/meme-pose/work/labels
   features: /work/hdd/bjeg/meme-pose/work/features

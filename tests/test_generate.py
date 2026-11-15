@@ -112,3 +112,58 @@ def test_frames_plan_edit_merge(tmp_path):
     assert run.main(["merge", *args]) == 0
     out = pd.read_csv(tmp_path / "synthetic/main/synthetic_frames.csv")
     assert len(out) == 2 * len(g) and out.syn_id.is_unique
+
+
+def test_low_memory_two_stage_editor(monkeypatch):
+    """The text encoder and image model must never be loaded at the same time."""
+    import diffusers
+    import torch
+    from PIL import Image
+    from memepose.generate import editors
+
+    loaded, alive = [], set()
+
+    class FakePipe:
+        def __init__(self, parts):
+            self.parts = parts
+            alive.update(parts)
+            assert not ({"text_encoder", "transformer"} <= alive), "both loaded at once"
+
+        @classmethod
+        def from_pretrained(cls, model, torch_dtype=None, **kw):
+            parts = {k for k in ("text_encoder", "tokenizer", "transformer", "vae") if kw.get(k, 1) is not None}
+            loaded.append(parts)
+            return cls(parts)
+
+        def to(self, d): return self
+        def set_progress_bar_config(self, **k): pass
+        def __del__(self): alive.difference_update(self.parts)
+
+        def encode_prompt(self, prompt, device=None):
+            return torch.full((1, 4, 8), float(len(prompt))), None
+
+        def __call__(self, image, generator, width, height, prompt_embeds=None, prompt=None, **kw):
+            assert prompt is None and prompt_embeds is not None
+            return type("O", (), {"images": [image[0]]})()
+
+    monkeypatch.setattr(diffusers, "FakeKlein", FakePipe, raising=False)
+    monkeypatch.setattr(editors, "pick_device", lambda: "cpu")
+    gen = {"backends": {"fake": {"pipeline": "FakeKlein", "model": "x", "steps": 4, "guidance_scale": 1.0}}}
+    ed = editors.make_editor(gen, "fake", low_memory=True)
+    ed.prepare(["a", "bb", "a"])
+    img = Image.new("RGB", (64, 64))
+    assert ed.edit(img, "bb", 1).size == (64, 64)
+    assert loaded[0] == {"text_encoder", "tokenizer"} and loaded[1] == {"transformer", "vae"}
+    assert len(ed.embeds) == 2
+
+
+def test_small_plan_is_balanced_overall():
+    """24 frames x 1 variant over 12 labels: every face attribute and every skin tone appears."""
+    labels = [f"m{i}" for i in range(12)]
+    src = [dict(frame_id=f"{l}_{k}", label=l, expr_text="") for l in labels for k in range(2)]
+    cfg = dict(GEN, variants_per_frame=1)
+    plan = pd.DataFrame(plan_variants(src, cfg, seed=0))
+    fa = plan.face_attr.value_counts()
+    assert fa.max() - fa.min() <= 1
+    skin = plan[plan.face_attr == "skin_tone"].face_value
+    assert skin.nunique() == min(len(skin), len(GEN["attributes"]["skin_tone"]))

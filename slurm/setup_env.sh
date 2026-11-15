@@ -3,6 +3,9 @@
 # Run from the repo root inside a short CPU interactive session (see docs/RUNBOOK.md), not on the login node.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+for d in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3"; do
+  command -v conda >/dev/null || { [ -f "$d/etc/profile.d/conda.sh" ] && . "$d/etc/profile.d/conda.sh"; }
+done
 if ! command -v conda >/dev/null; then
   echo "conda not found. Install Miniconda into your home directory first:"
   echo "  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"

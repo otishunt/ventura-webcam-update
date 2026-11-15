@@ -78,17 +78,24 @@ def stable_seed(*parts) -> int:
 
 
 class BalancedSampler:
-    """Pick the least-used value of each factor so attributes stay balanced within each label."""
+    """Pick the least-used value within each label; break ties by the least-used value
+    overall, so attributes are balanced per label AND across the whole plan (small
+    prototypes otherwise end up lopsided, e.g. no dark skin tones at all)."""
 
     def __init__(self, rng: np.random.Generator):
         self.rng = rng
         self.counts: dict = defaultdict(int)
 
-    def pick(self, key, options: list):
-        c = np.array([self.counts[(key, i)] for i in range(len(options))])
-        best = np.flatnonzero(c == c.min())
-        i = int(self.rng.choice(best))
+    def pick(self, key, options: list, overall=None):
+        local = np.array([self.counts[(key, i)] for i in range(len(options))])
+        cand = np.flatnonzero(local == local.min())
+        if overall is not None:
+            glob = np.array([self.counts[(("ALL", overall), i)] for i in cand])
+            cand = cand[glob == glob.min()]
+        i = int(self.rng.choice(cand))
         self.counts[(key, i)] += 1
+        if overall is not None:
+            self.counts[(("ALL", overall), i)] += 1
         return options[i]
 
 
@@ -118,11 +125,12 @@ def plan_variants(sources, gen_cfg: dict, seed: int = 0) -> list[dict]:
     for s in sources:
         lab = s["label"]
         for v in range(gen_cfg["variants_per_frame"]):
-            face_attr = sampler.pick((lab, "face_attr"), gen_cfg["face_attributes"])
-            face_val = sampler.pick((lab, face_attr), A[face_attr])
-            bg = sampler.pick((lab, "background"), A["background"])
-            cl = sampler.pick((lab, "clothing"), A["clothing"])
-            li = None if (face_attr == "skin_tone" and keep_light) else sampler.pick((lab, "lighting"), A["lighting"])
+            face_attr = sampler.pick((lab, "face_attr"), gen_cfg["face_attributes"], "face_attr")
+            face_val = sampler.pick((lab, face_attr), A[face_attr], face_attr)
+            bg = sampler.pick((lab, "background"), A["background"], "background")
+            cl = sampler.pick((lab, "clothing"), A["clothing"], "clothing")
+            li = (None if (face_attr == "skin_tone" and keep_light)
+                  else sampler.pick((lab, "lighting"), A["lighting"], "lighting"))
             syn_id = f"{s['frame_id']}_v{v}"
             rows.append(dict(
                 syn_id=syn_id, frame_id=s["frame_id"], label=lab, variant=v,

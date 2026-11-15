@@ -1,6 +1,6 @@
 """Plan, run and summarize synthetic frame generation.
 
-    python -m memepose.generate.run plan  [--variants 5] [--no-feature-prompt] [--name NAME]
+    python -m memepose.generate.run plan  [--variants 5] [--per-label 2] [--no-feature-prompt] [--name NAME]
     python -m memepose.generate.run edit  --backend klein4b [--limit 20] [--shard 0 --num-shards 4]
     python -m memepose.generate.run merge          # -> synthetic_frames.csv + acceptance tables
 
@@ -37,6 +37,9 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     crops, out = _dirs(cfg, a.name)
     frames = pd.read_csv(crops / "frames.csv", dtype={"clip_id": str, "person_id": str, "session_id": str})
     src = frames[(frames.gen_path.fillna("") != "") & (~frames.heldout.astype(bool))]
+    if a.per_label:  # prototype: a few source frames per label, from all people
+        src = src.sample(frac=1, random_state=a.seed).groupby("frame_label").head(a.per_label)
+        src = src.sort_values(["frame_label", "frame_id"])
     if a.variants:
         gen_cfg["variants_per_frame"] = a.variants
     if a.no_feature_prompt:
@@ -66,7 +69,10 @@ def cmd_edit(cfg, gen_cfg, a) -> int:
     if todo.empty:
         return 0
 
-    editor = make_editor(gen_cfg, a.backend, cpu_offload=a.cpu_offload)
+    editor = make_editor(gen_cfg, a.backend, cpu_offload=a.cpu_offload,
+                         low_memory=True if a.low_memory else None)
+    if hasattr(editor, "prepare"):
+        editor.prepare(list(todo.prompt))
     checker = None
     if a.checks != "none":
         from .checks import ImageLandmarker
@@ -140,6 +146,7 @@ def main(argv=None):
     ap.add_argument("--gen-config")
     ap.add_argument("--name", default="main", help="run name (subfolder of paths.synthetic)")
     ap.add_argument("--variants", type=int)
+    ap.add_argument("--per-label", type=int, help="plan: only N source frames per label (prototype)")
     ap.add_argument("--no-feature-prompt", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--backend", default="klein4b")
@@ -148,6 +155,8 @@ def main(argv=None):
     ap.add_argument("--num-shards", type=int, default=1)
     ap.add_argument("--checks", choices=["mediapipe", "none"], default="mediapipe")
     ap.add_argument("--cpu-offload", action="store_true", help="lower GPU memory, slower (CUDA only)")
+    ap.add_argument("--low-memory", action="store_true",
+                    help="encode prompts first, then load the image model (automatic on Apple GPUs)")
     ap.add_argument("--set", nargs="*")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))

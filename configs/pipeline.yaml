@@ -59,9 +59,11 @@ windows:
   free_clip_train_stride: 6 # free-behavior clips are long; subsample them more
 
 smoother:                   # hysteresis used for evaluation AND the live demo
-  on_threshold: 0.6
-  off_threshold: 0.4
-  on_frames: 4              # same meme for N consecutive frames before it is shown
+  # Tuned 2026-11-15 (memepose.tune_smoother, M1 no-flip runs): <= 1 false trigger/min at
+  # ~0.5 s delay. Evaluation still re-tunes per test person on the other people only.
+  on_threshold: 0.8
+  off_threshold: 0.6
+  on_frames: 14             # same meme for N consecutive frames (~0.47 s) before it is shown
   off_frames: 3             # confidence below off_threshold for K frames before it is hidden
 
 m1:
@@ -78,7 +80,8 @@ m1:
   class_weight_power: 0.5   # loss weight = (1/freq)^power
   augment: classic          # none | classic
   aug:
-    flip_p: 0.5
+    flip_p: 0.0             # off: the 3-seed ablation (2026-11-15) showed feature-space flip hurts
+                            # one-sided memes (shrek_side_eye 0.77 -> 0.38); see RESULTS_LOG
     noise_std: 0.03         # in standardized feature units
     time_scale: [0.8, 1.25] # speed jitter (stand-in for frame-rate jitter)
     feature_dropout_p: 0.1  # randomly zero a whole hand / face block
