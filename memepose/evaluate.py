@@ -162,7 +162,8 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         cl = clip_level(preds, test, frame_labels, tms, smoother, classes, onsets)
         cl["clips"]["fold"] = fname
         clip_tables.append(cl["clips"])
-        row = {"fold": fname, "frame_macro_f1": fm["macro_f1"], "frame_accuracy": fm["accuracy"]}
+        row = {"fold": fname, "n_test_clips": len(test), "frame_macro_f1": fm["macro_f1"],
+               "frame_accuracy": fm["accuracy"]}
         row.update({k2: v for k2, v in cl.items() if not isinstance(v, (pd.DataFrame, list))})
         fold_rows.append(row)
         log("  " + " ".join(f"{k2}={v:.3f}" if isinstance(v, float) else f"{k2}={v}" for k2, v in row.items()))
@@ -172,11 +173,19 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
     pooled = frame_metrics(yt, yp, classes)
     clips = pd.concat(clip_tables, ignore_index=True)
     folds_df = pd.DataFrame(fold_rows)
-    numeric = folds_df.drop(columns="fold").astype(float)
+    min_clips = cfg["split"].get("min_test_clips", 0)
+    folds_df["in_mean"] = folds_df.n_test_clips >= min_clips
+    if not folds_df.in_mean.any():
+        folds_df["in_mean"] = True
+    excluded = folds_df.loc[~folds_df.in_mean, "fold"].tolist()
+    if excluded:
+        log(f"left out of fold mean/sd (< {min_clips} test clips): {excluded}")
+    numeric = folds_df[folds_df.in_mean].drop(columns=["fold", "in_mean", "n_test_clips"]).astype(float)
     pooled_clip = clip_level(preds_all, df[df.clip_id.isin(preds_all)], frame_labels, tms, smoother, classes, onsets)
     summary = {
         "name": name, "model": model, "split": split, "n_folds": len(folds),
         "seconds": round(time.time() - t_start, 1),
+        "excluded_from_mean": excluded,
         "fold_mean": numeric.mean().round(4).to_dict(),
         "fold_std": numeric.std(ddof=0).round(4).to_dict(),
         "pooled_frame": {k: v for k, v in pooled.items() if k != "confusion"},

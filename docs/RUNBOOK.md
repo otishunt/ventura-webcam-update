@@ -81,6 +81,22 @@ GPU backend (MPS), rerun with `MEMEPOSE_DEVICE=cpu bash scripts/run_mac.sh`. Res
 iCloud Drive, the videos and everything in `work/` get uploaded to Apple, which breaks the
 consent promise. This repo is in Documents, so check this setting.
 
+### v1 improvement pass
+
+```bash
+bash scripts/run_v1_fixes.sh     # ~45 min on the M4
+```
+This runs four things:
+- M0 with a jointly calibrated no_meme margin
+- an M1 augmentation ablation: 6 variants × 3 seeds, summarized in `runs/ablation_summary.md`
+- smoother tuning: for each test person, settings are chosen using only the other people,
+  targeting ≤ 1 false trigger per minute; results in `runs/*/smoother/` (including the
+  `tradeoff.png` curve) and `runs/smoother_summary.csv`
+- an updated `runs/comparison.md`
+
+Folds with fewer than `split.min_test_clips` (20) test clips are still run and pooled, but
+are left out of fold means.
+
 ## 3. Prototype the edits (20 frames)
 
 ```bash
