@@ -155,3 +155,15 @@ def test_low_memory_two_stage_editor(monkeypatch):
     assert ed.edit(img, "bb", 1).size == (64, 64)
     assert loaded[0] == {"text_encoder", "tokenizer"} and loaded[1] == {"transformer", "vae"}
     assert len(ed.embeds) == 2
+
+
+def test_small_plan_is_balanced_overall():
+    """24 frames x 1 variant over 12 labels: every face attribute and every skin tone appears."""
+    labels = [f"m{i}" for i in range(12)]
+    src = [dict(frame_id=f"{l}_{k}", label=l, expr_text="") for l in labels for k in range(2)]
+    cfg = dict(GEN, variants_per_frame=1)
+    plan = pd.DataFrame(plan_variants(src, cfg, seed=0))
+    fa = plan.face_attr.value_counts()
+    assert fa.max() - fa.min() <= 1
+    skin = plan[plan.face_attr == "skin_tone"].face_value
+    assert skin.nunique() == min(len(skin), len(GEN["attributes"]["skin_tone"]))
