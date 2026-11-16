@@ -3,6 +3,11 @@
 
     python tools/import_recordings.py ~/Downloads/meme-recordings-CA-2026-11-16.zip
     python tools/import_recordings.py the.zip --dry-run      # show what would happen
+    python tools/import_recordings.py the.zip --prefix CA    # IDs clash: import P001 as CA-P001
+    python tools/import_recordings.py the.zip --folder carson --prefix CA   # zip holds several data folders
+
+Also accepts a hand-made zip of a recorder's data/ folder (Finder "Compress", Windows
+"Send to > Compressed folder"), at any depth; those have no checksums to verify.
 
 * Every file's checksum is verified before anything is copied.
 * Participants that don't exist here are added; for ones that do (an earlier export of the
@@ -17,6 +22,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -32,27 +38,53 @@ def norm(name: str) -> str:
 
 def relink_person_ids(data: Path, dry: bool, extra: list[dict] | None = None,
                       pending: dict[str, dict] | None = None) -> list[str]:
-    """Same signed name -> same person_id (the earliest participant ID with that name).
+    """One person_id per real person: participants are grouped by the same signed name AND by
+    manual links (tools/link_person.py, 'same_person' records in the consent log); each group
+    gets the person_id of its earliest-signed participant.
     `extra`/`pending` let a dry run include records and participants not yet written."""
     log = data / "consent" / "consent_log.jsonl"
     recs = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
     recs += extra or []
     consents = sorted((r for r in recs if r.get("type") == "consent"), key=lambda r: r.get("signed_at", ""))
-    first: dict[str, str] = {}
-    name_of: dict[str, str] = {}
+    order: dict[str, int] = {}
+    parent: dict[str, str] = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    first_by_name: dict[str, str] = {}
     for r in consents:
+        pid = r["participant_id"]
+        order.setdefault(pid, len(order))
         n = norm(r.get("signature_name", ""))
-        first.setdefault(n, r["participant_id"])
-        name_of[r["participant_id"]] = n
+        if n:
+            union(pid, first_by_name.setdefault(n, pid))
+        else:
+            find(pid)
+    for r in recs:
+        if r.get("type") == "same_person" and r.get("participant_id") in order and r.get("same_as") in order:
+            union(r["participant_id"], r["same_as"])
+    groups: dict[str, list[str]] = {}
+    for pid in order:
+        groups.setdefault(find(pid), []).append(pid)
+    want_of = {pid: min(members, key=order.__getitem__) for members in groups.values() for pid in members}
+
     changes = []
     parts = {f.parent.name: json.loads(f.read_text()) for f in (data / "participants").glob("*/participant.json")}
     parts.update(pending or {})
     for pid_dir, p in sorted(parts.items()):
         pfile = data / "participants" / pid_dir / "participant.json"
         pid = p["participant_id"]
-        if p.get("withdrawn") or pid not in name_of:
+        if p.get("withdrawn") or pid not in want_of:
             continue
-        want = first[name_of[pid]]
+        want = want_of[pid]
         if p.get("person_id") != want:
             changes.append(f"{pid}: person_id {p.get('person_id')} -> {want}")
             if not dry:
@@ -61,30 +93,152 @@ def relink_person_ids(data: Path, dry: bool, extra: list[dict] | None = None,
     return changes
 
 
+def _junk(n: str) -> bool:
+    base = n.rsplit("/", 1)[-1]
+    return n.startswith("__MACOSX/") or "/__MACOSX/" in n or base in (".DS_Store", "Thumbs.db") or base.startswith("._")
+
+
+def open_export(z: zipfile.ZipFile, folder: str | None = None):
+    """Return (read, info, verified): read(arc) gives the bytes of a path relative to the export
+    root. Handles our export (EXPORT_INFO.json, possibly inside one folder) and zipped data/ folders."""
+    orig = {n.replace("\\", "/"): n for n in z.namelist() if not n.endswith(("/", "\\"))}
+    names = [n for n in orig if not _junk(n)]
+    inside = (lambda n: folder.lower() in n.lower()) if folder else (lambda n: True)
+    infos = [n for n in names if n.rsplit("/", 1)[-1] == "EXPORT_INFO.json" and inside(n)]
+    if len(infos) == 1:
+        pre = infos[0][: -len("EXPORT_INFO.json")]
+        info = json.loads(z.read(orig[infos[0]]))
+        return (lambda arc: z.read(orig[pre + arc])), info, True
+
+    pj = [m for m in (re.match(r"^(.*?)participants/([^/]+)/participant\.json$", n) for n in names) if m]
+    pres = sorted({m.group(1) for m in pj if inside(m.group(1))})
+    if len(pres) > 1 and not folder:  # e.g. the whole recorder folder with data/ and data_test/
+        data_pres = [p for p in pres if p.rstrip("/").rsplit("/", 1)[-1] == "data"]
+        pres = data_pres if len(data_pres) == 1 else pres
+    if len(pres) > 1:
+        sys.exit("This zip holds recordings from several folders (probably several laptops):\n"
+                 + "".join(f"  {p or '/'}  ({sum(m.group(1) == p for m in pj)} participant(s))\n" for p in pres)
+                 + "Import them one at a time with --folder and a part of the folder name, e.g.\n"
+                 f"  --folder \"{pres[0].rstrip('/').split('/')[0] or pres[0]}\" --prefix XX --dry-run")
+    if len(pres) != 1:
+        sample = ", ".join(names[:5]) or "(empty)"
+        sys.exit("This zip doesn't look like recordings: expected EXPORT_INFO.json (from "
+                 "tools/export_recordings.py) or a data folder with participants/<ID>/participant.json.\n"
+                 f"Found {len(pres)} candidate folders; first entries: {sample}")
+    pre = pres[0]
+    files = {}
+    for n in names:
+        if not n.startswith(pre):
+            continue
+        arc = n[len(pre):]
+        if re.match(r"^participants/[^/]+/participant\.json$", arc) or (
+                re.match(r"^participants/[^/]+/clips/[^/]+\.(json|mp4)$", arc) and ".raw." not in arc):
+            files[arc] = None
+    if pre + "consent/consent_log.jsonl" in orig:
+        files["consent/consent_records.jsonl"] = None
+    pids = sorted({a.split("/")[1] for a in files if a.startswith("participants/")})
+    info = {"format": 1, "station": f"(zipped folder '{pre or '/'}')", "created_at": "unknown",
+            "participants": pids, "clips": sum(a.startswith("participants/") and "/clips/" in a
+                                               and a.endswith(".json") for a in files),
+            "files": files}
+
+    def read(arc):
+        if arc == "consent/consent_records.jsonl":
+            return z.read(orig[pre + "consent/consent_log.jsonl"])
+        return z.read(orig[pre + arc])
+    return read, info, False
+
+
+def _rename(obj, mapping: dict):
+    """Rename participant IDs in parsed JSON: exact values and 'P001_...' clip names/files."""
+    if isinstance(obj, dict):
+        return {k: _rename(v, mapping) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rename(v, mapping) for v in obj]
+    if isinstance(obj, str):
+        if obj in mapping:
+            return mapping[obj]
+        for old, new in mapping.items():
+            if obj.startswith(old + "_"):
+                return new + obj[len(old):]
+    return obj
+
+
+def _rename_arc(arc: str, mapping: dict) -> str:
+    parts = arc.split("/")
+    if len(parts) >= 2 and parts[0] == "participants" and parts[1] in mapping:
+        old = parts[1]
+        parts[1] = mapping[old]
+        if parts[-1].startswith(old + "_"):
+            parts[-1] = mapping[old] + parts[-1][len(old):]
+    return "/".join(parts)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("zip")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--folder", help="zip holds several data folders: import the one whose path contains this")
+    ap.add_argument("--prefix", help="import this zip's participants as PREFIX-<ID> (when IDs clash)")
     a = ap.parse_args()
     dry = a.dry_run
+    if a.prefix and not re.fullmatch(r"[A-Z0-9]{1,8}", a.prefix):
+        sys.exit("--prefix must be 1-8 capital letters/digits, e.g. CA")
 
     with zipfile.ZipFile(Path(a.zip).expanduser()) as z:
-        info = json.loads(z.read("EXPORT_INFO.json"))
+        zread, info, verified = open_export(z, a.folder)
         if info.get("format") != 1:
             sys.exit(f"Unknown export format {info.get('format')}")
-        bad = [arc for arc, h in info["files"].items() if hashlib.sha256(z.read(arc)).hexdigest() != h]
-        if bad:
-            sys.exit(f"Checksum mismatch in {len(bad)} file(s), e.g. {bad[0]}. The zip is damaged; export it again.")
+        if verified:
+            bad = [arc for arc, h in info["files"].items() if hashlib.sha256(zread(arc)).hexdigest() != h]
+            if bad:
+                sys.exit(f"Checksum mismatch in {len(bad)} file(s), e.g. {bad[0]}. "
+                         "The zip is damaged; export it again.")
         print(f"Zip from station '{info['station']}' ({info['created_at']}): "
-              f"{len(info['participants'])} participant(s), {info['clips']} clips. Checksums OK.")
+              f"{len(info['participants'])} participant(s), {info['clips']} clips. "
+              + ("Checksums OK." if verified else
+                 "Not made by export_recordings.py, so there are no checksums to verify."))
+
+        # Same ID here but a different person/participant (laptop recorded without a station name)?
+        mapping = {}
+        clash = []
+        for pid in info["participants"]:
+            here = DATA / "participants" / pid / "participant.json"
+            if not here.exists():
+                continue
+            inc = json.loads(zread(f"participants/{pid}/participant.json"))
+            cur = json.loads(here.read_text())
+            if (inc.get("salt"), inc.get("created_at")) != (cur.get("salt"), cur.get("created_at")):
+                clash.append(pid)
+        if a.prefix:
+            mapping = {pid: f"{a.prefix}-{pid}" for pid in info["participants"] if not pid.startswith(a.prefix + "-")}
+            taken = [new for new in mapping.values() if (DATA / "participants" / new).exists()]
+            if taken and not dry:
+                print(f"Note: {', '.join(taken)} already exist here; only new clips are added.")
+        elif clash:
+            sys.exit(f"{', '.join(clash)} in this zip {'is' if len(clash) == 1 else 'are'} a different participant "
+                     "than the same ID on this computer (that laptop recorded without a station name).\n"
+                     "Nothing was imported. Rerun with --prefix and the teammate's initials, e.g.\n"
+                     f"  python tools/import_recordings.py {a.zip} --prefix CA --dry-run")
+        if mapping:
+            print("Renaming: " + ", ".join(f"{o} -> {n}" for o, n in sorted(mapping.items())))
+
+        def read(arc):  # bytes of `arc`, with participant IDs renamed if --prefix
+            data = zread(arc)
+            if not mapping or not arc.endswith((".json", ".jsonl")):
+                return data
+            if arc.endswith(".jsonl"):
+                return "".join(json.dumps(_rename(json.loads(l), mapping)) + "\n"
+                               for l in data.decode().splitlines() if l.strip()).encode()
+            return json.dumps(_rename(json.loads(data), mapping), indent=2).encode()
 
         added, skipped, conflicts, withdrawals = 0, 0, [], []
         plan = []
         for arc in info["files"]:
             if not arc.startswith("participants/"):
                 continue
-            dst = DATA / arc
-            data = z.read(arc)
+            dst = DATA / _rename_arc(arc, mapping)
+            data = read(arc)
             if arc.endswith("/participant.json"):
                 incoming = json.loads(data)
                 if dst.exists():
@@ -115,7 +269,12 @@ def main():
         log = DATA / "consent" / "consent_log.jsonl"
         have = {json.dumps(json.loads(line), sort_keys=True) for line in log.read_text().splitlines()
                 if line.strip()} if log.exists() else set()
-        for line in z.read("consent/consent_records.jsonl").decode().splitlines():
+        if "consent/consent_records.jsonl" not in info["files"]:
+            print("WARNING: no consent records in this zip, so these sessions can't be linked to the same "
+                  "person on other laptops by signed name.")
+        consent_lines = (read("consent/consent_records.jsonl").decode().splitlines()
+                         if "consent/consent_records.jsonl" in info["files"] else [])
+        for line in consent_lines:
             if line.strip() and json.dumps(json.loads(line), sort_keys=True) not in have:
                 consent_new.append(line)
 
