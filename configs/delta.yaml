@@ -1,8 +1,10 @@
 # NCSA Delta, allocation bjeg (CSC 4888, shared with the class).
-# Delta only needs the crops exported on the Mac (work/crops), not the videos.
+# Delta never gets the videos: scripts/sync_to_delta.sh copies only derived data
+# (crops, landmarks, labels, feature cache, manifest) into the private team folder.
 base: pipeline.yaml
 paths:
   # mediapipe_models: default models/mediapipe (committed in the repo)
+  manifest: /work/hdd/bjeg/meme-pose/work/manifest.csv   # copied by scripts/sync_to_delta.sh
   landmarks: /work/hdd/bjeg/meme-pose/work/landmarks
   labels: /work/hdd/bjeg/meme-pose/work/labels
   features: /work/hdd/bjeg/meme-pose/work/features

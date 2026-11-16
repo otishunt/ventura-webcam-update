@@ -86,6 +86,28 @@ m1:
     time_scale: [0.8, 1.25] # speed jitter (stand-in for frame-rate jitter)
     feature_dropout_p: 0.1  # randomly zero a whole hand / face block
 
+m2:                         # frame model on crops (memepose/models/frame.py); train on Delta
+  backbone: dinov2_s        # dinov2_s (ViT-S/14) | efficientnet_b0 (CNN speed baseline) | tiny (tests)
+  image_size: 224
+  store_size: 256           # crops are kept in memory at this size (~4.8 GB for 24k crops)
+  epochs: 10
+  batch_size: 64
+  lr_backbone: 2.0e-5
+  lr_head: 1.0e-3
+  weight_decay: 0.05
+  warmup_epochs: 1
+  dropout: 0.1
+  label_smoothing: 0.1
+  val_fraction: 0.15        # of training clips, grouped by clip, for early stopping
+  patience: 3
+  class_weight_power: 0.5
+  aug:
+    flip_p: 0.5             # real pixel mirror (M1's flip was in feature space, which hurt)
+    scale: [0.8, 1.0]       # zoom of the crop window
+    shift: 0.08
+    color: 0.3              # brightness / contrast / saturation jitter
+    gray_p: 0.05
+
 split:
   # Sessions reserved for the new-conditions test (L7 #2). Never used for training.
   heldout_sessions: []
