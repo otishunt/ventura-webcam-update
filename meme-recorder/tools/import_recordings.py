@@ -38,27 +38,53 @@ def norm(name: str) -> str:
 
 def relink_person_ids(data: Path, dry: bool, extra: list[dict] | None = None,
                       pending: dict[str, dict] | None = None) -> list[str]:
-    """Same signed name -> same person_id (the earliest participant ID with that name).
+    """One person_id per real person: participants are grouped by the same signed name AND by
+    manual links (tools/link_person.py, 'same_person' records in the consent log); each group
+    gets the person_id of its earliest-signed participant.
     `extra`/`pending` let a dry run include records and participants not yet written."""
     log = data / "consent" / "consent_log.jsonl"
     recs = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
     recs += extra or []
     consents = sorted((r for r in recs if r.get("type") == "consent"), key=lambda r: r.get("signed_at", ""))
-    first: dict[str, str] = {}
-    name_of: dict[str, str] = {}
+    order: dict[str, int] = {}
+    parent: dict[str, str] = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    first_by_name: dict[str, str] = {}
     for r in consents:
+        pid = r["participant_id"]
+        order.setdefault(pid, len(order))
         n = norm(r.get("signature_name", ""))
-        first.setdefault(n, r["participant_id"])
-        name_of[r["participant_id"]] = n
+        if n:
+            union(pid, first_by_name.setdefault(n, pid))
+        else:
+            find(pid)
+    for r in recs:
+        if r.get("type") == "same_person" and r.get("participant_id") in order and r.get("same_as") in order:
+            union(r["participant_id"], r["same_as"])
+    groups: dict[str, list[str]] = {}
+    for pid in order:
+        groups.setdefault(find(pid), []).append(pid)
+    want_of = {pid: min(members, key=order.__getitem__) for members in groups.values() for pid in members}
+
     changes = []
     parts = {f.parent.name: json.loads(f.read_text()) for f in (data / "participants").glob("*/participant.json")}
     parts.update(pending or {})
     for pid_dir, p in sorted(parts.items()):
         pfile = data / "participants" / pid_dir / "participant.json"
         pid = p["participant_id"]
-        if p.get("withdrawn") or pid not in name_of:
+        if p.get("withdrawn") or pid not in want_of:
             continue
-        want = first[name_of[pid]]
+        want = want_of[pid]
         if p.get("person_id") != want:
             changes.append(f"{pid}: person_id {p.get('person_id')} -> {want}")
             if not dry:
