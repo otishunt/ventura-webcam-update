@@ -4,6 +4,7 @@
     python tools/import_recordings.py ~/Downloads/meme-recordings-CA-2026-11-16.zip
     python tools/import_recordings.py the.zip --dry-run      # show what would happen
     python tools/import_recordings.py the.zip --prefix CA    # IDs clash: import P001 as CA-P001
+    python tools/import_recordings.py the.zip --folder carson --prefix CA   # zip holds several data folders
 
 Also accepts a hand-made zip of a recorder's data/ folder (Finder "Compress", Windows
 "Send to > Compressed folder"), at any depth; those have no checksums to verify.
@@ -71,22 +72,28 @@ def _junk(n: str) -> bool:
     return n.startswith("__MACOSX/") or "/__MACOSX/" in n or base in (".DS_Store", "Thumbs.db") or base.startswith("._")
 
 
-def open_export(z: zipfile.ZipFile):
+def open_export(z: zipfile.ZipFile, folder: str | None = None):
     """Return (read, info, verified): read(arc) gives the bytes of a path relative to the export
     root. Handles our export (EXPORT_INFO.json, possibly inside one folder) and zipped data/ folders."""
     orig = {n.replace("\\", "/"): n for n in z.namelist() if not n.endswith(("/", "\\"))}
     names = [n for n in orig if not _junk(n)]
-    infos = [n for n in names if n.rsplit("/", 1)[-1] == "EXPORT_INFO.json"]
+    inside = (lambda n: folder.lower() in n.lower()) if folder else (lambda n: True)
+    infos = [n for n in names if n.rsplit("/", 1)[-1] == "EXPORT_INFO.json" and inside(n)]
     if len(infos) == 1:
         pre = infos[0][: -len("EXPORT_INFO.json")]
         info = json.loads(z.read(orig[infos[0]]))
         return (lambda arc: z.read(orig[pre + arc])), info, True
 
     pj = [m for m in (re.match(r"^(.*?)participants/([^/]+)/participant\.json$", n) for n in names) if m]
-    pres = sorted({m.group(1) for m in pj})
-    if len(pres) > 1:  # e.g. the whole recorder folder with data/ and data_test/
+    pres = sorted({m.group(1) for m in pj if inside(m.group(1))})
+    if len(pres) > 1 and not folder:  # e.g. the whole recorder folder with data/ and data_test/
         data_pres = [p for p in pres if p.rstrip("/").rsplit("/", 1)[-1] == "data"]
         pres = data_pres if len(data_pres) == 1 else pres
+    if len(pres) > 1:
+        sys.exit("This zip holds recordings from several folders (probably several laptops):\n"
+                 + "".join(f"  {p or '/'}  ({sum(m.group(1) == p for m in pj)} participant(s))\n" for p in pres)
+                 + "Import them one at a time with --folder and a part of the folder name, e.g.\n"
+                 f"  --folder \"{pres[0].rstrip('/').split('/')[0] or pres[0]}\" --prefix XX --dry-run")
     if len(pres) != 1:
         sample = ", ".join(names[:5]) or "(empty)"
         sys.exit("This zip doesn't look like recordings: expected EXPORT_INFO.json (from "
@@ -145,6 +152,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("zip")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--folder", help="zip holds several data folders: import the one whose path contains this")
     ap.add_argument("--prefix", help="import this zip's participants as PREFIX-<ID> (when IDs clash)")
     a = ap.parse_args()
     dry = a.dry_run
@@ -152,7 +160,7 @@ def main():
         sys.exit("--prefix must be 1-8 capital letters/digits, e.g. CA")
 
     with zipfile.ZipFile(Path(a.zip).expanduser()) as z:
-        zread, info, verified = open_export(z)
+        zread, info, verified = open_export(z, a.folder)
         if info.get("format") != 1:
             sys.exit(f"Unknown export format {info.get('format')}")
         if verified:
