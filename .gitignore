@@ -27,3 +27,6 @@ meme-recorder/exports/
 *.zip
 *.jsonl
 .admin_token
+
+# Claude Code: personal permissions stay local
+.claude/settings.local.json
