@@ -61,7 +61,9 @@ def cmd_edit(cfg, gen_cfg, a) -> int:
     plan = pd.read_csv(out / "plan.csv", dtype={"clip_id": str, "person_id": str, "session_id": str})
     plan = plan[np.arange(len(plan)) % a.num_shards == a.shard]
     part = out / "parts" / f"results.{a.backend}.shard{a.shard}.csv"
-    done = set(pd.read_csv(part, usecols=["syn_id"]).syn_id) if part.exists() else set()
+    # a job killed during its first edit leaves an empty file, which read_csv cannot parse
+    new_file = not part.exists() or part.stat().st_size == 0
+    done = set() if new_file else set(pd.read_csv(part, usecols=["syn_id"]).syn_id)
     todo = plan[~plan.syn_id.isin(done)]
     if a.limit:
         todo = todo.head(a.limit)
@@ -103,7 +105,7 @@ def cmd_edit(cfg, gen_cfg, a) -> int:
                           "expr_delta", "key_delta", "roll_delta_deg", "rule_src", "rule_out",
                           "hand_shape_delta", "pose_delta", "ita_src", "ita_out"]
                 w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
-                if not done:
+                if new_file:
                     w.writeheader()
             w.writerow(res)
             f.flush()

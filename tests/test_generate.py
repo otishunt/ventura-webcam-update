@@ -106,7 +106,10 @@ def test_frames_plan_edit_merge(tmp_path):
     assert (tmp_path / "crops" / g.gen_path.iloc[0]).exists()
     assert set(g.frame_label) >= {"no_meme", "arms_raised", "timeout"}
     args = ["--set", f"paths.crops={paths['crops']}", f"paths.synthetic={paths['synthetic']}"]
+    assert set(frames.frame_label) >= {"ignore"}   # boundary frames are exported for M2 test time
     assert run.main(["plan", "--variants", "2", *args]) == 0
+    # a job killed during its first edit leaves an empty results file; the rerun must cope
+    (tmp_path / "synthetic/main/parts/results.stub.shard0.csv").touch()
     assert run.main(["edit", "--backend", "stub", "--checks", "none", "--limit", "5", *args]) == 0
     assert run.main(["edit", "--backend", "stub", "--checks", "none", *args]) == 0  # resumes
     assert run.main(["merge", *args]) == 0

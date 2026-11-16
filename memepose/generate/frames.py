@@ -3,7 +3,8 @@
     python -m memepose.generate.frames --config configs/mac.yaml
 
 Writes <crops>/frames.csv plus
-  <crops>/real/<frame_id>.jpg     every few labelled frames, for M2 training and testing
+  <crops>/real/<frame_id>.jpg     every few frames, for M2 training and testing (frames at a
+                                   pose boundary have frame_label "ignore": test-time only)
   <crops>/gen_src/<frame_id>.jpg  larger crops of the frames chosen as generation sources:
                                    peak-pose frames of memes, neutral moments, negative-movement
                                    peaks and free-behavior frames (memes and non-memes get the
@@ -25,7 +26,7 @@ from .. import constants as C
 from ..config import REPO_ROOT, load_config, parse_overrides
 from ..data import load_clip_features
 from ..features import feature_index
-from ..labels import IGNORE, load_frame_labels, motion_energy
+from ..labels import load_frame_labels, motion_energy
 from ..landmarks_io import ClipLandmarks
 from ..manifest import load_manifest
 from .prompts import expression_text
@@ -88,7 +89,10 @@ def choose_frames(r, lab: np.ndarray, feats: np.ndarray, t_ms: np.ndarray, fc: d
     """(training frame indices, generation-source frame indices) for one clip."""
     T = len(lab)
     every = fc["free_train_every"] if r.clip_type == "free" else fc["train_every"]
-    train = [i for i in range(0, T, every) if lab[i] != IGNORE]
+    # Boundary frames (label IGNORE) are exported too: they are never trained on or scored,
+    # but M2 must see them at test time, or its prediction goes stale across every pose onset
+    # (up to ~0.3 s) and its delay is not comparable with M0/M1, which predict on every frame.
+    train = list(range(0, T, every))
     gen: list[int] = []
     if r.clip_type == "meme":
         inside = np.flatnonzero(lab == r.y)

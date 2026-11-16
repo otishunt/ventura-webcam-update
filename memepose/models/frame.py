@@ -205,9 +205,14 @@ class FrameModel:
         opt = torch.optim.AdamW([{"params": body, "lr": lr_body}, {"params": head, "lr": m2["lr_head"]}],
                                 weight_decay=m2["weight_decay"])
         bs = m2["batch_size"]
-        steps = max(1, math.ceil(len(tr) / bs))
+        # Equal training budget: an "epoch" is as many steps as the REAL training crops need,
+        # drawn at random from real + synthetic. Otherwise adding synthetic images also adds
+        # optimizer steps, and "+synthetic" could win just by training longer.
+        n_ref = int((~is_syn[tr]).sum()) if m2.get("equal_steps", True) else 0
+        steps = max(1, math.ceil((n_ref or len(tr)) / bs))
         total = steps * m2["epochs"]
         warm = int(steps * m2.get("warmup_epochs", 1))
+        log(f"  {steps} steps per epoch (batch {bs})")
 
         def lr_at(step):
             if step < warm:

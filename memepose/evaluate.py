@@ -9,6 +9,8 @@
     python -m memepose.evaluate --model m2 --name m2_dinov2_lopo_s0          # needs work/crops
     python -m memepose.evaluate --model m2 --synthetic-images work/synthetic/main/synthetic_frames.csv \
         --name m2_dinov2_lopo_syn_s0
+    python -m memepose.evaluate --model m2 --synthetic-images work/synthetic/main/synthetic_frames.csv \
+        --synthetic-control --name m2_dinov2_lopo_ctl_s0     # same frames, unedited (control arm)
 
 Splits (sessions listed in split.heldout_sessions are NEVER used for training, and only
 the newcond split tests on them):
@@ -20,7 +22,9 @@ the newcond split tests on them):
 
 Synthetic clips (optional) need a CSV with clip_id, source_clip_id, source_person_id.
 They inherit the source clip's frame labels (generation keeps geometry and timing), and in
-each fold only synthetic clips whose source person is in the training set are used.
+each fold only synthetic data whose SOURCE CLIP is in the training set is used. Under the
+person-level splits that means never the test person; under newcond/loso it also keeps out
+edits of the test sessions.
 
 M2 (frame model on crops) trains on <crops>/frames.csv real crops; --synthetic-images takes
 generate.run's synthetic_frames.csv (accepted edits only; same source-person rule).
@@ -83,17 +87,21 @@ def load_crops(cfg: Config, df: pd.DataFrame, frame_labels: dict) -> pd.DataFram
     fr = fr[(fr.real_path.fillna("") != "") & fr.clip_id.isin(set(df.clip_id))].copy()
     fr["y"] = [int(frame_labels[c][i]) if i < len(frame_labels[c]) else -1
                for c, i in zip(fr.clip_id, fr.frame_idx)]
-    fr = fr[fr.y >= 0]
-    fr["key"] = fr.frame_id
+    fr["key"] = fr.frame_id  # y = -1 (boundary frames): predicted at test time, never trained on
     fr["path"] = [str(root / p) for p in fr.real_path]
     fr["synthetic"] = False
     return fr.reset_index(drop=True)
 
 
 def load_synthetic_images(path: str, cfg: Config, df_all: pd.DataFrame, crops: pd.DataFrame,
-                          backend: str | None = None) -> pd.DataFrame:
+                          backend: str | None = None, control: bool = False) -> pd.DataFrame:
     """Accepted synthetic edits as extra M2 training images; label and person come from the
-    source frame (person via the manifest, so later person relinks are respected)."""
+    source frame (person via the manifest, so later person relinks are respected).
+
+    control=True swaps every accepted edit for its UNEDITED source crop (same rows, same
+    counts per frame and label). That arm adds the same peak-pose frames the same number of
+    times without changing anyone's appearance, so "+synthetic minus control" is the effect
+    of the appearance edits alone."""
     syn = pd.read_csv(path, dtype={"clip_id": str, "person_id": str, "session_id": str})
     syn = syn[syn.accepted.astype(str).str.lower() == "true"]
     if backend:
@@ -106,8 +114,14 @@ def load_synthetic_images(path: str, cfg: Config, df_all: pd.DataFrame, crops: p
     syn["y"] = syn.label.map(cls)
     syn = syn[syn.y.notna()].copy()
     syn["y"] = syn.y.astype(int)
-    syn["key"] = "syn:" + syn.syn_id.astype(str) + ":" + syn.backend.astype(str)
-    syn["path"] = [str(Path(path).parent / p) for p in syn.image_path]
+    if control:
+        if "gen_path" not in syn.columns:
+            raise SystemExit("--synthetic-control needs the gen_path column (rerun generate.run merge)")
+        syn["key"] = "src:" + syn.frame_id.astype(str)   # one stored image per source frame
+        syn["path"] = [str(cfg.path("crops") / p) for p in syn.gen_path]
+    else:
+        syn["key"] = "syn:" + syn.syn_id.astype(str) + ":" + syn.backend.astype(str)
+        syn["path"] = [str(Path(path).parent / p) for p in syn.image_path]
     syn["synthetic"] = True
     return syn[["key", "path", "clip_id", "person_id", "y", "synthetic"]].reset_index(drop=True)
 
@@ -123,7 +137,7 @@ def load_synthetic(path: str, cfg: Config) -> pd.DataFrame:
 def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = None,
         synthetic_landmarks: str | None = None, synthetic_ratio: float | None = None,
         seed: int = 0, limit_folds: int | None = None, synthetic_images: str | None = None,
-        synthetic_backend: str | None = None) -> dict:
+        synthetic_backend: str | None = None, synthetic_control: bool = False) -> dict:
     out = cfg.path("runs") / name
     out.mkdir(parents=True, exist_ok=True)
     log_f = open(out / "log.txt", "w")
@@ -174,10 +188,12 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         from .models.frame import CropStore
         crops = load_crops(cfg, df, frame_labels)
         if synthetic_images:
-            syn_img = load_synthetic_images(synthetic_images, cfg, df, crops, synthetic_backend)
-            log(f"{len(syn_img)} accepted synthetic images available")
+            syn_img = load_synthetic_images(synthetic_images, cfg, df, crops, synthetic_backend,
+                                            synthetic_control)
+            log(f"{len(syn_img)} accepted synthetic images available"
+                + (" (CONTROL: unedited source crops in their place)" if synthetic_control else ""))
         allimg = pd.concat([crops, syn_img], ignore_index=True) if syn_img is not None else crops
-        log(f"{len(crops)} real crops from {crops.clip_id.nunique()} clips")
+        log(f"{len(crops)} real crops ({int((crops.y >= 0).sum())} labelled) from {crops.clip_id.nunique()} clips")
         store = CropStore(dict(zip(allimg.key, allimg.path)), cfg["m2"].get("store_size", 256), log=log)
 
     folds = make_folds(df, split, cfg["split"]["heldout_sessions"])
@@ -191,9 +207,12 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
             f"({train.person_id.nunique()} people), test {len(test)} clips")
         train_ids = list(train.clip_id)
         is_free = list(train.clip_type == "free")
+        train_clips = set(train.clip_id)
+        assert not train_clips & set(test.clip_id)
+        if split in ("lopo", "newperson"):  # person-level splits: never the test person
+            assert not set(train.person_id) & set(test.person_id)
         if syn is not None and len(syn):
-            ok = syn[syn.source_person_id.isin(set(train.person_id))]
-            assert not set(ok.source_person_id) & set(test.person_id)  # never the test person
+            ok = syn[syn.source_clip_id.isin(train_clips)]  # only edits of training clips
             if synthetic_ratio is not None:
                 n_take = min(len(ok), int(round(synthetic_ratio * len(train))))
                 ok = ok.sample(n=n_take, random_state=seed) if n_take < len(ok) else ok
@@ -214,10 +233,9 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
             m.save(fdir / "model.pt")
         elif model == "m2":
             from .models.frame import FrameModel
-            tr = crops[crops.clip_id.isin(set(train.clip_id))]
+            tr = crops[crops.clip_id.isin(train_clips) & (crops.y >= 0)]
             if syn_img is not None:
-                ok = syn_img[syn_img.person_id.isin(set(train.person_id))]
-                assert not set(ok.person_id) & set(test.person_id)  # never the test person
+                ok = syn_img[syn_img.clip_id.isin(train_clips)]  # only edits of training clips
                 if synthetic_ratio is not None:
                     n_take = min(len(ok), int(round(synthetic_ratio * len(tr))))
                     ok = ok.sample(n=n_take, random_state=seed) if n_take < len(ok) else ok
@@ -349,6 +367,8 @@ def main(argv=None):
     ap.add_argument("--synthetic-ratio", type=float)
     ap.add_argument("--synthetic-images", help="M2: synthetic_frames.csv from memepose.generate.run merge")
     ap.add_argument("--synthetic-backend", help="M2: only edits from this backend (e.g. klein4b)")
+    ap.add_argument("--synthetic-control", action="store_true",
+                    help="M2 control arm: use each accepted edit's unedited source crop instead of the edit")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit-folds", type=int)
     ap.add_argument("--set", nargs="*")
@@ -356,7 +376,7 @@ def main(argv=None):
     cfg = load_config(a.config, parse_overrides(a.set))
     name = a.name or f"{a.model}_{a.split}_{time.strftime('%Y%m%d-%H%M%S')}"
     run(cfg, a.model, a.split, name, a.synthetic, a.synthetic_landmarks, a.synthetic_ratio,
-        a.seed, a.limit_folds, a.synthetic_images, a.synthetic_backend)
+        a.seed, a.limit_folds, a.synthetic_images, a.synthetic_backend, a.synthetic_control)
 
 
 if __name__ == "__main__":

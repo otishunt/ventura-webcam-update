@@ -4,6 +4,8 @@
 #   sbatch slurm/m2.slurm                                          # DINOv2 ViT-S, LOPO, seeds 0 1 2
 #   sbatch --export=ALL,BACKBONE=efficientnet_b0 slurm/m2.slurm    # CNN speed baseline
 #   sbatch --export=ALL,TAG=syn,EXTRA="--synthetic-images /work/hdd/bjeg/meme-pose/work/synthetic/main/synthetic_frames.csv" slurm/m2.slurm
+#   sbatch --export=ALL,TAG=ctl,EXTRA="--synthetic-control --synthetic-images /work/hdd/bjeg/meme-pose/work/synthetic/main/synthetic_frames.csv" slurm/m2.slurm
+#       ^ control arm: the same accepted frames, unedited. Compare syn against ctl, not only against real.
 #   sbatch --export=ALL,SPLIT=newcond slurm/m2.slurm               # once split.heldout_sessions is set
 # Cost: 0.5 SU per A40-hour; one seed of DINOv2 ViT-S under LOPO is roughly 10-20 minutes.
 #SBATCH --job-name=memepose-m2
