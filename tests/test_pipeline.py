@@ -223,3 +223,80 @@ def test_ablation_variants_and_m0_margin():
     m.no_meme_margin = 10.0  # huge margin -> always no_meme
     F = np.zeros((5, len(__import__("memepose.features", fromlist=["x"]).feature_names())), np.float32)
     assert (m.predict_proba(F).argmax(1) == cfg.no_meme_idx).all()
+
+
+def test_hold_forward_is_causal():
+    from memepose.models.frame import hold_forward
+    P = np.eye(3, dtype=np.float32)[[0, 1]]          # predictions at frames 2 and 5
+    out = hold_forward(np.array([5, 2]), P[[1, 0]], 8, no_meme=2)
+    assert out[:2].argmax(1).tolist() == [2, 2]        # before the first crop: no_meme
+    assert out[2:5].argmax(1).tolist() == [0, 0, 0]    # frame 2's prediction held until frame 4
+    assert out[5:].argmax(1).tolist() == [1, 1, 1]
+
+
+def test_newperson_split():
+    import pandas as pd
+    from memepose.evaluate import make_folds
+    df = pd.DataFrame(dict(clip_id=list("abcdef"), person_id=["p1", "p1", "p2", "p2", "p3", "p3"],
+                           session_id=["s1", "h1", "s2", "h2", "s3", "s3"]))
+    folds = make_folds(df, "newperson", ["h1", "h2"])
+    assert [f[0] for f in folds] == ["person=p1", "person=p2"]
+    name, train, test = folds[0]
+    assert set(test.clip_id) == {"b"} and set(train.clip_id) == {"c", "e", "f"}  # no p1, no held-out
+
+
+def test_m2_end_to_end(tmp_path):
+    """fake data -> labels -> fake crops -> 1-epoch tiny M2 under LOPO, with synthetic images."""
+    import pandas as pd
+    from PIL import Image
+
+    from memepose import fake
+    from memepose.evaluate import run
+    from memepose.labels import build_labels, load_frame_labels, save_labels
+    from memepose.manifest import load_manifest
+
+    man = fake.generate(tmp_path / "fake", people=2, sessions=1, repeats=1, free_seconds=6)
+    cfg = load_config(overrides={"paths": {
+        "recorder_root": str(tmp_path / "fake/meme-recorder"), "manifest": str(man),
+        "landmarks": str(tmp_path / "fake/landmarks"), "labels": str(tmp_path / "labels"),
+        "features": str(tmp_path / "features"), "runs": str(tmp_path / "runs"),
+        "crops": str(tmp_path / "crops")},
+        "m2": {"backbone": "tiny", "epochs": 1, "image_size": 32, "store_size": 32, "batch_size": 16}})
+    df = load_manifest(cfg)
+    save_labels(cfg, *build_labels(cfg, df))
+    labels = load_frame_labels(cfg)
+    rng = np.random.default_rng(0)
+    (tmp_path / "crops/real").mkdir(parents=True)
+    rows = []
+    for r in df.itertuples():
+        for i in range(0, len(labels[r.clip_id]), 3):
+            if labels[r.clip_id][i] < 0:
+                continue
+            fid = f"{r.clip_id}_f{i:04d}"
+            Image.fromarray(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(tmp_path / f"crops/real/{fid}.jpg")
+            rows.append(dict(frame_id=fid, clip_id=r.clip_id, person_id=r.person_id, session_id=r.session_id,
+                             frame_idx=i, real_path=f"real/{fid}.jpg", gen_path=""))
+    fr = pd.DataFrame(rows)
+    fr.to_csv(tmp_path / "crops/frames.csv", index=False)
+
+    # synthetic edits of person1's frames; must never be used when person1 is tested
+    sdir = tmp_path / "syn"
+    (sdir / "images").mkdir(parents=True)
+    srows = []
+    for k, r in enumerate(fr[fr.person_id == "person1"].head(20).itertuples()):
+        Image.fromarray(rng.integers(0, 255, (48, 48, 3), dtype=np.uint8)).save(sdir / f"images/s{k}.jpg")
+        srows.append(dict(syn_id=f"s{k}", frame_id=r.frame_id, clip_id=r.clip_id, person_id="stale",
+                          session_id=r.session_id, label=cfg.class_names[labels[r.clip_id][r.frame_idx]],
+                          backend="stub", image_path=f"images/s{k}.jpg", accepted=k % 4 != 0))
+    pd.DataFrame(srows).to_csv(sdir / "synthetic_frames.csv", index=False)
+
+    s = run(cfg, "m2", "lopo", "m2", synthetic_images=str(sdir / "synthetic_frames.csv"))
+    assert s["n_folds"] == 2 and 0 <= s["fold_mean"]["frame_macro_f1"] <= 1
+    log = (tmp_path / "runs/m2/log.txt").read_text()
+    assert "15 accepted synthetic images available" in log
+    assert "+ 0 synthetic images" in log
+    assert "+ 15 synthetic images from ['person1']" in log
+    assert (tmp_path / "runs/m2/fold0/model.pt").exists()
+    preds = np.load(tmp_path / "runs/m2/fold0/preds.npz")
+    cid = next(iter(preds.files))
+    assert preds[cid].shape == (len(labels[cid]), len(cfg.class_names))

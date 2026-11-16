@@ -222,7 +222,7 @@ The target is at least 15 frames per second end to end on an M4 MacBook.
 | ✅ | Mac and Delta configs, Slurm jobs; 16 tests passing on stand-in data |
 | ⬜ | Record all four people (several sessions each + one held-out session) |
 | ⬜ | Causal ("streaming") feature mode and the live demo |
-| ⬜ | M2 frame model |
+| 🟨 | M2 frame model (built: DINOv2 ViT-S / EfficientNet-B0; first Delta runs pending) |
 | ⬜ | 20-frame prompt prototype → prompt sweep → bulk generation on Delta |
 | ⬜ | Training matrix, ablations, report and presentation (mid-December) |
 

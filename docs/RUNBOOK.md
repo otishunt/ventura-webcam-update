@@ -133,7 +133,8 @@ sbatch slurm/download_models.slurm          # model weights to /work/hdd/bjeg/me
 allocation, so keep it that way. Give a teammate access with
 `setfacl -R -m u:<netid>:rwx /work/hdd/bjeg/meme-pose`.
 
-Copy `work/crops/` from the Mac to `/work/hdd/bjeg/meme-pose/work/crops/` with Globus. Then:
+Copy the derived data from the Mac (crops, landmarks, labels, feature cache, manifest; never
+the videos) with one command: `bash scripts/sync_to_delta.sh <netid>`. Then:
 ```bash
 python -m memepose.generate.run plan --config configs/delta.yaml          # seconds, login node is fine
 sbatch --array=0 --export=ALL,EXTRA="--limit 40" slurm/generate.slurm     # timing check: read s/edit in logs/
@@ -144,6 +145,26 @@ Resubmitting the same array continues where it stopped. Pick the backend with
 `--export=ALL,BACKEND=qwen_edit` (best quality, the default choice now that budget allows
 it), `klein9b`, or `klein4b` (fastest). Comparing backends on the same plan is a cheap
 extra result: run the prototype with two backends and compare their acceptance tables.
+
+## 5. Delta: M2 (frame model on crops)
+
+Needs the synced data from step 4. One A40 per job; three seeds per job by default.
+```bash
+sbatch slurm/m2.slurm                                          # DINOv2 ViT-S/14, LOPO, seeds 0-2
+sbatch --export=ALL,BACKBONE=efficientnet_b0 slurm/m2.slurm    # small CNN, the speed baseline
+sbatch --export=ALL,TAG=syn,EXTRA="--synthetic-images /work/hdd/bjeg/meme-pose/work/synthetic/main/synthetic_frames.csv" slurm/m2.slurm
+sbatch --export=ALL,SPLIT=newcond slurm/m2.slurm               # after split.heldout_sessions is set
+```
+- **What it is:** a pretrained backbone (`m2.backbone` in `configs/pipeline.yaml`) fine-tuned on
+  the 256-px real crops (every 3rd labelled frame), resized to 224. Augmentation runs on the
+  GPU: crop zoom/shift, a real pixel mirror, color jitter.
+- **Scoring:** each crop's prediction is held to the following frames (causal), then the same
+  smoother and clip metrics as M0/M1 apply, so all models are directly comparable.
+- **Synthetic edits:** only accepted edits, and only from people in the fold's training set.
+  `--synthetic-ratio 1.0` caps them at the number of real training crops;
+  `--synthetic-backend klein4b` picks one editor's output.
+- **Results:** in `/work/hdd/bjeg/meme-pose/runs/m2_*`, plus `comparison.md` there. Copy them
+  back to the Mac with `rsync -a <netid>@login.delta.ncsa.illinois.edu:/work/hdd/bjeg/meme-pose/runs/ runs/delta/`.
 
 ## Compute notes
 
@@ -184,6 +205,7 @@ extra result: run the prototype with two backends and compare their acceptance t
 |---|---|---|---|
 | `lopo` | 3 people | the 4th person (4 folds) | main metric |
 | `newcond` | all regular sessions | sessions in `split.heldout_sessions` | new rooms, lighting, outfits |
+| `newperson` | other people's regular sessions | one person's held-out sessions | new person AND new conditions (closest to the demo) |
 | `loso` | other sessions | one session | development only while data is thin |
 
 Sessions in `split.heldout_sessions` are never used for training or as generation sources.
