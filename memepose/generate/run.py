@@ -28,6 +28,9 @@ from .frames import load_gen_config
 from .prompts import plan_variants
 
 
+PAD_COLS = ["pad_l", "pad_t", "pad_r", "pad_b"]
+
+
 def _dirs(cfg, name: str) -> tuple[Path, Path]:
     crops = cfg.path("crops")
     out = cfg.path("synthetic") / name
@@ -50,8 +53,9 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     rows = plan_variants([dict(frame_id=r.frame_id, label=r.frame_label,
                                expr_text=r.expr_text if isinstance(r.expr_text, str) else "")
                           for r in src.itertuples()], gen_cfg, seed=a.seed)
-    plan = pd.DataFrame(rows).merge(
-        src[["frame_id", "clip_id", "person_id", "session_id", "gen_path"]], on="frame_id")
+    cols = ["frame_id", "clip_id", "person_id", "session_id", "gen_path"]
+    cols += [c for c in PAD_COLS if c in src.columns]   # out-of-frame bands of each source crop
+    plan = pd.DataFrame(rows).merge(src[cols], on="frame_id")
     plan.to_csv(out / "plan.csv", index=False)
     print(f"{len(plan)} edits planned from {len(src)} source frames -> {out / 'plan.csv'}")
     print(plan.groupby(["face_attr", "face_value"]).size().to_string())
@@ -93,6 +97,11 @@ def cmd_edit(cfg, gen_cfg, a) -> int:
             t0 = time.time()
             img = editor.edit(src, row["prompt"], row["seed"])
             gen_s = time.time() - t0
+            if all(c in row for c in PAD_COLS):
+                # the source's out-of-frame bands are black; keep them black in the edit, so the
+                # editor cannot paint there and real and synthetic crops share the same frame
+                from .frames import black_out_padding
+                img = Image.fromarray(black_out_padding(np.array(img), [row[c] for c in PAD_COLS]))
             rel = f"images/{row['syn_id']}.{a.backend}.jpg"
             img.save(out / rel, quality=93)
             res = dict(syn_id=row["syn_id"], backend=a.backend, image_path=rel, gen_seconds=round(gen_s, 2))

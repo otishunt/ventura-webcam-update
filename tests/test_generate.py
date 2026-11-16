@@ -106,6 +106,7 @@ def test_frames_plan_edit_merge(tmp_path):
     assert (tmp_path / "crops" / g.gen_path.iloc[0]).exists()
     assert set(g.frame_label) >= {"no_meme", "arms_raised", "timeout"}
     args = ["--set", f"paths.crops={paths['crops']}", f"paths.synthetic={paths['synthetic']}"]
+    assert {"pad_l", "pad_t", "pad_r", "pad_b"} <= set(frames.columns)
     assert set(frames.frame_label) >= {"ignore"}   # boundary frames are exported for M2 test time
     assert run.main(["plan", "--variants", "2", *args]) == 0
     # a job killed during its first edit leaves an empty results file; the rerun must cope
@@ -170,3 +171,16 @@ def test_small_plan_is_balanced_overall():
     assert fa.max() - fa.min() <= 1
     skin = plan[plan.face_attr == "skin_tone"].face_value
     assert skin.nunique() == min(len(skin), len(GEN["attributes"]["skin_tone"]))
+
+
+def test_crop_padding_is_black_and_stays_black():
+    from memepose.generate.frames import black_out_padding, cut, pad_fractions
+    frame = np.full((72, 128, 3), 200, np.uint8)
+    box = (64.0, 50.0, 100.0)                       # 100-px square: 14 px above?, 28 px below the frame
+    crop = cut(frame, box, 100)
+    l, t, r, b = pad_fractions(box, 128, 72)
+    assert (l, t, r) == (0, 0, 0) and abs(b - 0.28) < 1e-9
+    assert (crop[-27:] == 0).all() and (crop[:70] == 200).all()   # black band, not a reflection
+    edit = np.full((50, 50, 3), 90, np.uint8)       # an "edit" that painted over the band, other size
+    out = black_out_padding(edit, (l, t, r, b))
+    assert (out[-14:] == 0).all() and (out[:36] == 90).all()

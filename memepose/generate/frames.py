@@ -72,14 +72,38 @@ def crop_box(lm: ClipLandmarks, i: int, margin: float = 1.25) -> tuple[float, fl
     return float(cx), float(cy), float(side)
 
 
+def pad_fractions(box: tuple[float, float, float], W: int, H: int) -> tuple[float, float, float, float]:
+    """(left, top, right, bottom) share of the square crop that lies outside the camera frame."""
+    cx, cy, side = box
+    h = int(round(side / 2))
+    x0, y0 = int(round(cx)) - h, int(round(cy)) - h
+    d = max(2 * h, 1)
+    return (max(0, -x0) / d, max(0, -y0) / d, max(0, x0 + 2 * h - W) / d, max(0, y0 + 2 * h - H) / d)
+
+
+def black_out_padding(img: np.ndarray, pads) -> np.ndarray:
+    """Set the out-of-frame bands of a square crop (any size) to black, in place."""
+    S = img.shape[0]
+    l, t, r, b = (int(np.floor(float(p) * S)) if p == p else 0 for p in pads)
+    img[:, :l], img[:t] = 0, 0
+    if r:
+        img[:, S - r:] = 0
+    if b:
+        img[S - b:] = 0
+    return img
+
+
 def cut(frame_bgr: np.ndarray, box: tuple[float, float, float], size: int) -> np.ndarray:
+    """Square crop; the part outside the camera frame is BLACK. (It used to be a mirror
+    reflection, which copied hands and arms into the band below the frame: most crops are
+    taller than the 720-px frame, so the editor and M2 saw duplicated hands.)"""
     import cv2
     cx, cy, side = box
     h = int(round(side / 2))
     x0, y0 = int(round(cx)) - h, int(round(cy)) - h
     H, W = frame_bgr.shape[:2]
     pad = max(0, -x0, -y0, x0 + 2 * h - W, y0 + 2 * h - H)
-    img = cv2.copyMakeBorder(frame_bgr, pad, pad, pad, pad, cv2.BORDER_REFLECT_101) if pad else frame_bgr
+    img = cv2.copyMakeBorder(frame_bgr, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0) if pad else frame_bgr
     crop = img[y0 + pad: y0 + pad + 2 * h, x0 + pad: x0 + pad + 2 * h]
     return cv2.resize(crop, (size, size), interpolation=cv2.INTER_AREA)
 
@@ -164,7 +188,9 @@ def export(cfg, gen_cfg: dict, out_dir: Path, limit: int | None = None) -> pd.Da
                         frame_idx=i, t_ms=float(t_ms[i]) if i < len(t_ms) else np.nan,
                         heldout=r.session_id in held, real_path=real_p, gen_path=gen_p,
                         expr_text=expression_text(lm.blend[i], feats[i, fi["roll"]]) if gen_p else "",
-                        crop_cx=box[0], crop_cy=box[1], crop_side=box[2]))
+                        crop_cx=box[0], crop_cy=box[1], crop_side=box[2],
+                        **dict(zip(("pad_l", "pad_t", "pad_r", "pad_b"),
+                                   pad_fractions(box, frame.shape[1], frame.shape[0])))))
                 j += 1
             i += 1
         cap.release()
