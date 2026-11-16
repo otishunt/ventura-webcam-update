@@ -72,7 +72,7 @@ def test_compare_accepts_identical_and_catches_label_damage(clip):
     lost.hands[0, 0] = np.nan
     lost.hands[0, 1] = np.nan
     m = compare(img, src, img, lost, "timeout", row, gen_checks)
-    assert not m["accepted"] and "hand_count_changed" in m["reasons"]
+    assert not m["accepted"] and "hand_lost" in m["reasons"]
     # sleepy_squint: eyes opened by the edit
     lm = clip("sleepy_squint")
     src = one_frame(lm, 75)
