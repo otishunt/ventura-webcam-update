@@ -101,6 +101,7 @@ m2:                         # frame model on crops (memepose/models/frame.py); t
   val_fraction: 0.15        # of training clips, grouped by clip, for early stopping
   patience: 3
   class_weight_power: 0.5
+  equal_steps: true         # steps per epoch = real training crops / batch, with or without synthetic
   aug:
     flip_p: 0.5             # real pixel mirror (M1's flip was in feature space, which hurt)
     scale: [0.8, 1.0]       # zoom of the crop window

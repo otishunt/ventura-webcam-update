@@ -73,7 +73,7 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     ap.add_argument("--variants", nargs="+", default=list(VARIANTS))
     ap.add_argument("--split", default="lopo")
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     from .evaluate import run

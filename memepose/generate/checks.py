@@ -4,7 +4,8 @@ A synthetic frame is accepted only if the label survived the edit:
   * a face is still found, and expression blendshapes barely moved (overall and for the
     blendshapes that define this meme), and the head roll is unchanged
   * the M0 rule score for the meme kept most of its value
-  * hand memes keep the same number of hands, the same finger configuration and arm pose
+  * hand memes keep every source hand (paired by wrist position), with the same finger
+    configuration and arm pose, and gain no extra hand
   * skin-tone edits actually moved the skin toward the target (ITA, measured on the cheeks)
 """
 from __future__ import annotations
@@ -24,11 +25,13 @@ CHEEK_POINTS = [50, 101, 118, 205, 280, 330, 347, 425]
 class ImageLandmarker:
     """MediaPipe on single images (IMAGE mode); returns a 1-frame ClipLandmarks."""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, checks: dict | None = None):
         from ..extract import Extractor
         ex = cfg["extraction"]
+        # checks.min_detection_confidence overrides the extraction setting for the checks only
+        det = (checks or {}).get("min_detection_confidence") or ex["min_detection_confidence"]
         self.ex = Extractor(cfg.path("mediapipe_models"), ex["pose_model"], ex["num_hands"],
-                            ex["min_detection_confidence"], ex["min_tracking_confidence"], mode="image")
+                            det, ex["min_tracking_confidence"], mode="image")
 
     def __call__(self, rgb: np.ndarray) -> ClipLandmarks:
         h, w = rgb.shape[:2]
@@ -97,16 +100,27 @@ def compare(src_rgb, src_lm: ClipLandmarks, out_rgb, out_lm: ClipLandmarks, labe
 
     if label in checks["hand_memes"]:
         hs, ho = _hands_present(Fs, fi), _hands_present(Fo, fi)
-        if len(hs) != len(ho):
-            m["reasons"].append("hand_count_changed")
-        elif hs:
-            block = lambda F, s: F[0, fi[f"h{s}_pt0_x"]: fi[f"h{s}_pt0_x"] + 63].reshape(21, 3)[:, :2]
-            pairs = [list(zip(hs, ho)), list(zip(hs, ho[::-1]))]
-            m["hand_shape_delta"] = float(min(
-                np.mean([np.mean(np.linalg.norm(block(Fs, a) - block(Fo, b), axis=1)) for a, b in p])
-                for p in pairs))
+        m["hands_src"], m["hands_out"] = len(hs), len(ho)
+        # Pair hands by where the wrist is in the image, not by MediaPipe's left/right slot:
+        # on single images the slot flips and hands drop in and out even when nothing changed
+        # (measured on unedited frames), so slot-wise comparison compares different hands.
+        block = lambda F, s: F[0, fi[f"h{s}_pt0_x"]: fi[f"h{s}_pt0_x"] + 63].reshape(21, 3)[:, :2]
+        wrist = lambda lm, s: lm.hands[0, s, C.WRIST, :2].astype(float)
+        deltas, used = [], set()
+        for a in hs:
+            cands = [(float(np.linalg.norm(wrist(src_lm, a) - wrist(out_lm, b))), b) for b in ho if b not in used]
+            if cands and min(cands)[0] <= checks.get("hand_match_dist", 0.12):
+                b = min(cands)[1]
+                used.add(b)
+                deltas.append(float(np.mean(np.linalg.norm(block(Fs, a) - block(Fo, b), axis=1))))
+        if deltas:
+            m["hand_shape_delta"] = float(np.max(deltas))
             if m["hand_shape_delta"] > checks["max_hand_shape_delta"]:
                 m["reasons"].append("fingers_changed")
+        if len(ho) < len(hs) and len(deltas) < len(hs):
+            m["reasons"].append("hand_lost")          # a source hand has no counterpart in the edit
+        elif len(ho) > len(hs) and checks.get("reject_extra_hands", True):
+            m["reasons"].append("hand_added")
         joints = [C.L_ELBOW, C.R_ELBOW, C.L_WRIST, C.R_WRIST]
         d = [np.hypot(Fs[0, fi[f"pose{j}_x"]] - Fo[0, fi[f"pose{j}_x"]],
                       Fs[0, fi[f"pose{j}_y"]] - Fo[0, fi[f"pose{j}_y"]])

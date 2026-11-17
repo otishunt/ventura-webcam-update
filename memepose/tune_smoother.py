@@ -151,7 +151,7 @@ def main(argv=None):
     ap.add_argument("--config")
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--max-ft", type=float, default=1.0, help="target false triggers per minute")
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     rows = []

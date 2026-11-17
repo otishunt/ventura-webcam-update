@@ -287,10 +287,21 @@ def test_m2_end_to_end(tmp_path):
         Image.fromarray(rng.integers(0, 255, (48, 48, 3), dtype=np.uint8)).save(sdir / f"images/s{k}.jpg")
         srows.append(dict(syn_id=f"s{k}", frame_id=r.frame_id, clip_id=r.clip_id, person_id="stale",
                           session_id=r.session_id, label=cfg.class_names[labels[r.clip_id][r.frame_idx]],
-                          backend="stub", image_path=f"images/s{k}.jpg", accepted=k % 4 != 0))
+                          backend="stub", image_path=f"images/s{k}.jpg", accepted=k % 4 != 0,
+                          gen_path=r.real_path))
     pd.DataFrame(srows).to_csv(sdir / "synthetic_frames.csv", index=False)
 
+    # a boundary frame (label -1) with a crop: used for test-time prediction, never for training
+    r0 = df.iloc[0]
+    ig = int(np.flatnonzero(labels[r0.clip_id] < 0)[0])
+    Image.fromarray(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(tmp_path / "crops/real/ig.jpg")
+    fr = pd.concat([fr, pd.DataFrame([dict(frame_id="ig", clip_id=r0.clip_id, person_id=r0.person_id,
+                                           session_id=r0.session_id, frame_idx=ig,
+                                           real_path="real/ig.jpg", gen_path="")])], ignore_index=True)
+    fr.to_csv(tmp_path / "crops/frames.csv", index=False)
+
     s = run(cfg, "m2", "lopo", "m2", synthetic_images=str(sdir / "synthetic_frames.csv"))
+    assert f"{len(fr)} real crops ({len(fr) - 1} labelled)" in (tmp_path / "runs/m2/log.txt").read_text()
     assert s["n_folds"] == 2 and 0 <= s["fold_mean"]["frame_macro_f1"] <= 1
     log = (tmp_path / "runs/m2/log.txt").read_text()
     assert "15 accepted synthetic images available" in log
@@ -300,3 +311,95 @@ def test_m2_end_to_end(tmp_path):
     preds = np.load(tmp_path / "runs/m2/fold0/preds.npz")
     cid = next(iter(preds.files))
     assert preds[cid].shape == (len(labels[cid]), len(cfg.class_names))
+
+    # equal budget: steps per epoch come from the real crops only, with or without synthetic
+    steps = [l for l in log.splitlines() if "steps per epoch" in l]
+    n_real = [int(l.split("training crops")[0].split(":")[-1]) - int(l.split("(")[1].split()[0])
+              for l in log.splitlines() if "training crops" in l]
+    assert [int(l.split()[0]) for l in steps] == [-(-n // 16) for n in n_real]
+
+    # control arm: the same rows, but each edit replaced by its unedited source crop
+    from memepose.evaluate import load_synthetic_images
+    ctl = load_synthetic_images(str(sdir / "synthetic_frames.csv"), cfg, df, None, control=True)
+    assert len(ctl) == 15 and ctl.key.str.startswith("src:").all()
+    assert all((tmp_path / "crops/real") in __import__("pathlib").Path(p).parents for p in ctl.path)
+    run(cfg, "m2", "lopo", "m2_ctl", synthetic_images=str(sdir / "synthetic_frames.csv"),
+        synthetic_control=True, limit_folds=1)
+    assert "CONTROL" in (tmp_path / "runs/m2_ctl/log.txt").read_text()
+
+
+def test_synthetic_follows_source_clip_in_session_splits(tmp_path):
+    """newcond/loso test the same people as they train on: edits of the test sessions' clips
+    must stay out of training (this used to trip the person-level assert and crash)."""
+    import pandas as pd
+    from PIL import Image
+
+    from memepose import fake
+    from memepose.evaluate import run
+    from memepose.labels import build_labels, load_frame_labels, save_labels
+    from memepose.manifest import load_manifest
+
+    man = fake.generate(tmp_path / "fake", people=2, sessions=2, repeats=1, free_seconds=6)
+    cfg = load_config(overrides={"paths": {
+        "recorder_root": str(tmp_path / "fake/meme-recorder"), "manifest": str(man),
+        "landmarks": str(tmp_path / "fake/landmarks"), "labels": str(tmp_path / "labels"),
+        "features": str(tmp_path / "features"), "runs": str(tmp_path / "runs"),
+        "crops": str(tmp_path / "crops")},
+        "m2": {"backbone": "tiny", "epochs": 1, "image_size": 32, "store_size": 32, "batch_size": 16}})
+    df = load_manifest(cfg)
+    save_labels(cfg, *build_labels(cfg, df))
+    labels = load_frame_labels(cfg)
+    rng = np.random.default_rng(0)
+    (tmp_path / "crops/real").mkdir(parents=True)
+    (tmp_path / "syn/images").mkdir(parents=True)
+    rows, srows = [], []
+    for r in df.itertuples():
+        for i in range(0, len(labels[r.clip_id]), 6):
+            if labels[r.clip_id][i] < 0:
+                continue
+            fid = f"{r.clip_id}_f{i:04d}"
+            Image.fromarray(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(tmp_path / f"crops/real/{fid}.jpg")
+            rows.append(dict(frame_id=fid, clip_id=r.clip_id, person_id=r.person_id, session_id=r.session_id,
+                             frame_idx=i, real_path=f"real/{fid}.jpg", gen_path=""))
+        fid = rows[-1]["frame_id"]  # one accepted edit per clip, in every session
+        Image.fromarray(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(tmp_path / f"syn/images/{fid}.jpg")
+        srows.append(dict(syn_id=fid, frame_id=fid, clip_id=r.clip_id, person_id=r.person_id,
+                          session_id=r.session_id, label=r.label, backend="stub",
+                          image_path=f"images/{fid}.jpg", accepted=True))
+    pd.DataFrame(rows).to_csv(tmp_path / "crops/frames.csv", index=False)
+    pd.DataFrame(srows).to_csv(tmp_path / "syn/synthetic_frames.csv", index=False)
+
+    sessions = sorted(df.session_id.unique())
+    n_train = int((df.session_id != sessions[0]).sum())
+    run(cfg, "m2", "loso", "m2_loso", synthetic_images=str(tmp_path / "syn/synthetic_frames.csv"),
+        limit_folds=1)
+    assert f"+ {n_train} synthetic images" in (tmp_path / "runs/m2_loso/log.txt").read_text()
+
+
+def test_m2_augment_fills_out_of_crop_area_with_black():
+    """A shifted window must not mirror the crop's edge back in (duplicated hands)."""
+    import torch
+    from memepose.models.frame import MEAN, STD, augment
+    batch = np.full((4, 32, 32, 3), 255, np.uint8)
+    aug = dict(scale=(1.0, 1.0), shift=0.5, flip_p=0.0, color=0.0, gray_p=0.0)
+    x = augment(batch, torch.device("cpu"), 32, aug, torch.Generator().manual_seed(0))
+    black = (0 - MEAN[0]) / STD[0]
+    white = (1 - MEAN[0]) / STD[0]
+    r = x[:, 0]
+    assert torch.isclose(r.min(), torch.tensor(black), atol=1e-4)   # the uncovered strip is black
+    assert torch.isclose(r.max(), torch.tensor(white), atol=1e-4)
+
+
+def test_report_pools_seeds_and_shows_smoother(tmp_path):
+    from memepose import report
+    for name, f1, on in (("m2_x_s0", 0.6, 14), ("m2_x_s1", 0.8, 14), ("m1_old", 0.7, 4)):
+        d = tmp_path / "runs" / name
+        d.mkdir(parents=True)
+        (d / "metrics.json").write_text(json.dumps(dict(
+            name=name, model=name[:2], split="lopo", n_folds=3,
+            fold_mean={"frame_macro_f1": f1}, fold_std={"frame_macro_f1": 0.1})))
+        (d / "config.yaml").write_text(f"smoother: {{on_threshold: 0.8, on_frames: {on}}}\n")
+    report.main(["--set", f"paths.runs={tmp_path / 'runs'}"])
+    text = (tmp_path / "runs/comparison.md").read_text()
+    assert "| m2_x  | m2" in text and "0.700 ± 0.100" in text      # two seeds pooled
+    assert "0.8/14" in text and "0.8/4" in text and "different smoother settings" in text

@@ -106,6 +106,8 @@ checks:                    # L4 thresholds; starting guesses, calibrate on the p
   max_roll_delta_deg: 6
   min_rule_ratio: 0.6      # M0 rule score of the label after/before (meme frames only)
   max_hand_shape_delta: 0.35   # wrist-relative finger positions, palm-length units
+  hand_match_dist: 0.12        # hands are paired by wrist position (fraction of the image), not left/right slot
+  reject_extra_hands: true     # an edit that shows more hands than its source is rejected (hand_added)
   max_pose_delta: 0.25     # shoulder/elbow/wrist positions, shoulder-width units
   skin_min_ita_shift: 8    # degrees the skin must move toward the target ITA range
   hand_memes: [point_at_self, pinch_grin, timeout, hands_on_head, point_sideways, arms_raised, pure_cinema]

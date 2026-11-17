@@ -72,7 +72,7 @@ def test_compare_accepts_identical_and_catches_label_damage(clip):
     lost.hands[0, 0] = np.nan
     lost.hands[0, 1] = np.nan
     m = compare(img, src, img, lost, "timeout", row, gen_checks)
-    assert not m["accepted"] and "hand_count_changed" in m["reasons"]
+    assert not m["accepted"] and "hand_lost" in m["reasons"]
     # sleepy_squint: eyes opened by the edit
     lm = clip("sleepy_squint")
     src = one_frame(lm, 75)
@@ -106,7 +106,11 @@ def test_frames_plan_edit_merge(tmp_path):
     assert (tmp_path / "crops" / g.gen_path.iloc[0]).exists()
     assert set(g.frame_label) >= {"no_meme", "arms_raised", "timeout"}
     args = ["--set", f"paths.crops={paths['crops']}", f"paths.synthetic={paths['synthetic']}"]
+    assert {"pad_l", "pad_t", "pad_r", "pad_b"} <= set(frames.columns)
+    assert set(frames.frame_label) >= {"ignore"}   # boundary frames are exported for M2 test time
     assert run.main(["plan", "--variants", "2", *args]) == 0
+    # a job killed during its first edit leaves an empty results file; the rerun must cope
+    (tmp_path / "synthetic/main/parts/results.stub.shard0.csv").touch()
     assert run.main(["edit", "--backend", "stub", "--checks", "none", "--limit", "5", *args]) == 0
     assert run.main(["edit", "--backend", "stub", "--checks", "none", *args]) == 0  # resumes
     assert run.main(["merge", *args]) == 0
@@ -167,3 +171,45 @@ def test_small_plan_is_balanced_overall():
     assert fa.max() - fa.min() <= 1
     skin = plan[plan.face_attr == "skin_tone"].face_value
     assert skin.nunique() == min(len(skin), len(GEN["attributes"]["skin_tone"]))
+
+
+def test_crop_padding_is_black_and_stays_black():
+    from memepose.generate.frames import black_out_padding, cut, pad_fractions
+    frame = np.full((72, 128, 3), 200, np.uint8)
+    box = (64.0, 50.0, 100.0)                       # 100-px square: 14 px above?, 28 px below the frame
+    crop = cut(frame, box, 100)
+    l, t, r, b = pad_fractions(box, 128, 72)
+    assert (l, t, r) == (0, 0, 0) and abs(b - 0.28) < 1e-9
+    assert (crop[-27:] == 0).all() and (crop[:70] == 200).all()   # black band, not a reflection
+    edit = np.full((50, 50, 3), 90, np.uint8)       # an "edit" that painted over the band, other size
+    out = black_out_padding(edit, (l, t, r, b))
+    assert (out[-14:] == 0).all() and (out[:36] == 90).all()
+
+
+def test_merge_copes_with_empty_parts_and_reports_each_backend(tmp_path):
+    """Two editors share one plan (the prototype); one shard was killed before its first edit
+    (empty file) and one edit was redone after a resubmit (duplicate row)."""
+    from memepose.generate import run
+
+    out = tmp_path / "synthetic/main"
+    (out / "parts").mkdir(parents=True)
+    src = [dict(frame_id=f"f{i}", label="timeout" if i % 2 else "no_meme", expr_text="") for i in range(4)]
+    plan = pd.DataFrame(plan_variants(src, dict(GEN, variants_per_frame=1), seed=0))
+    plan.assign(clip_id="c", person_id="p", session_id="s", gen_path="g.jpg").to_csv(out / "plan.csv", index=False)
+    row = lambda sid, be, acc, why="": dict(syn_id=sid, backend=be, image_path=f"images/{sid}.{be}.jpg",
+                                            gen_seconds=2.0 if be == "a" else 9.0, accepted=acc, reasons=why)
+    ids = list(plan.syn_id)
+    pd.DataFrame([row(ids[0], "a", False, "hand_lost"), row(ids[1], "a", True),
+                  row(ids[0], "a", True)]).to_csv(out / "parts/results.a.shard0.csv", index=False)
+    pd.DataFrame([row(i, "b", False, "hand_lost;arms_moved") for i in ids]).to_csv(
+        out / "parts/results.b.shard0.csv", index=False)
+    (out / "parts/results.b.shard1.csv").touch()
+    args = ["--set", f"paths.crops={tmp_path / 'crops'}", "--set", f"paths.synthetic={tmp_path / 'synthetic'}"]
+    assert run.main(["merge", *args]) == 0          # --set given twice: both overrides apply
+    df = pd.read_csv(out / "synthetic_frames.csv")
+    assert len(df) == 6 and not df.duplicated(["syn_id", "backend"]).any()
+    by = pd.read_csv(out / "acceptance_by_backend.csv", index_col=0)
+    assert by.loc["a", "accepted"] == 1.0 and by.loc["b", "accepted"] == 0.0   # the redo replaced the reject
+    assert by.loc["b", "edits"] == 4 and by.loc["b", "median_gen_seconds"] == 9.0
+    why = pd.read_csv(out / "rejection_reasons_by_backend.csv")
+    assert set(why.backend) == {"b"} and set(why.reason) == {"hand_lost", "arms_moved"}

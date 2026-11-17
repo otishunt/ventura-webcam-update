@@ -156,11 +156,12 @@ sbatch --export=ALL,TAG=syn,EXTRA="--synthetic-images /work/hdd/bjeg/meme-pose/w
 sbatch --export=ALL,SPLIT=newcond slurm/m2.slurm               # after split.heldout_sessions is set
 ```
 - **What it is:** a pretrained backbone (`m2.backbone` in `configs/pipeline.yaml`) fine-tuned on
-  the 256-px real crops (every 3rd labelled frame), resized to 224. Augmentation runs on the
+  the 256-px real crops (every 3rd frame), resized to 224. Crops at a pose boundary (label
+  ignored) are predicted at test time but never trained on or scored. Augmentation runs on the
   GPU: crop zoom/shift, a real pixel mirror, color jitter.
 - **Scoring:** each crop's prediction is held to the following frames (causal), then the same
   smoother and clip metrics as M0/M1 apply, so all models are directly comparable.
-- **Synthetic edits:** only accepted edits, and only from people in the fold's training set.
+- **Synthetic edits:** only accepted edits, and only of clips in the fold's training set.
   `--synthetic-ratio 1.0` caps them at the number of real training crops;
   `--synthetic-backend klein4b` picks one editor's output.
 - **Results:** in `/work/hdd/bjeg/meme-pose/runs/m2_*`, plus `comparison.md` there. Copy them
@@ -231,7 +232,9 @@ Sessions in `split.heldout_sessions` are never used for training or as generatio
   - skin-tone edits actually moved the measured skin tone toward the target
 - **Every edit, kept or not,** is logged with its attributes, prompt, seed and check metrics
   in `synthetic_frames.csv`. The acceptance rates by label × attribute are results to report.
-- **Leakage:** in each fold, use only synthetic frames whose `person_id` is a training person.
+- **Leakage:** in each fold, only edits whose source clip is in the training set are used. Under
+  `lopo`/`newperson` that means never the test person; under `newcond`/`loso` it also keeps out
+  edits of the test sessions.
 
 `evaluate.py --synthetic` is the equivalent hook for clip-level (M1) synthetic data.
 
@@ -250,7 +253,7 @@ Clips of the retired memes (`success_fist`, `chill_guy`) are skipped automatical
 ## Testing without real data
 
 ```bash
-python -m pytest -q                                          # 16 tests
+python -m pytest -q                                          # all must pass
 python -m memepose.fake --out work/fake && bash scripts/run_baselines.sh configs/fake.yaml
 ```
 The fake gestures are far cleaner than real people (M1 scores about 0.99 on them). That run
