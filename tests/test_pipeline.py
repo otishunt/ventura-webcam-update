@@ -374,3 +374,32 @@ def test_synthetic_follows_source_clip_in_session_splits(tmp_path):
     run(cfg, "m2", "loso", "m2_loso", synthetic_images=str(tmp_path / "syn/synthetic_frames.csv"),
         limit_folds=1)
     assert f"+ {n_train} synthetic images" in (tmp_path / "runs/m2_loso/log.txt").read_text()
+
+
+def test_m2_augment_fills_out_of_crop_area_with_black():
+    """A shifted window must not mirror the crop's edge back in (duplicated hands)."""
+    import torch
+    from memepose.models.frame import MEAN, STD, augment
+    batch = np.full((4, 32, 32, 3), 255, np.uint8)
+    aug = dict(scale=(1.0, 1.0), shift=0.5, flip_p=0.0, color=0.0, gray_p=0.0)
+    x = augment(batch, torch.device("cpu"), 32, aug, torch.Generator().manual_seed(0))
+    black = (0 - MEAN[0]) / STD[0]
+    white = (1 - MEAN[0]) / STD[0]
+    r = x[:, 0]
+    assert torch.isclose(r.min(), torch.tensor(black), atol=1e-4)   # the uncovered strip is black
+    assert torch.isclose(r.max(), torch.tensor(white), atol=1e-4)
+
+
+def test_report_pools_seeds_and_shows_smoother(tmp_path):
+    from memepose import report
+    for name, f1, on in (("m2_x_s0", 0.6, 14), ("m2_x_s1", 0.8, 14), ("m1_old", 0.7, 4)):
+        d = tmp_path / "runs" / name
+        d.mkdir(parents=True)
+        (d / "metrics.json").write_text(json.dumps(dict(
+            name=name, model=name[:2], split="lopo", n_folds=3,
+            fold_mean={"frame_macro_f1": f1}, fold_std={"frame_macro_f1": 0.1})))
+        (d / "config.yaml").write_text(f"smoother: {{on_threshold: 0.8, on_frames: {on}}}\n")
+    report.main(["--set", f"paths.runs={tmp_path / 'runs'}"])
+    text = (tmp_path / "runs/comparison.md").read_text()
+    assert "| m2_x  | m2" in text and "0.700 ± 0.100" in text      # two seeds pooled
+    assert "0.8/14" in text and "0.8/4" in text and "different smoother settings" in text

@@ -371,7 +371,7 @@ def main(argv=None):
                     help="M2 control arm: use each accepted edit's unedited source crop instead of the edit")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit-folds", type=int)
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     name = a.name or f"{a.model}_{a.split}_{time.strftime('%Y%m%d-%H%M%S')}"

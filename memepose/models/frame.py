@@ -96,7 +96,10 @@ def augment(batch: np.ndarray, device, out: int, aug: dict, gen: torch.Generator
     theta[:, 0, 0], theta[:, 0, 2] = s * flip, tx
     theta[:, 1, 1], theta[:, 1, 2] = s, ty
     grid = F.affine_grid(theta, (B, 3, out, out), align_corners=False)
-    x = F.grid_sample(x, grid, mode="bilinear", padding_mode="reflection", align_corners=False)
+    # A shifted window can reach past the crop's edge (up to shift/2 of its width). Fill that
+    # strip with black, like the out-of-frame band of the crops themselves; a reflection would
+    # mirror hands and arms at the border (the same artifact the crops had before a3de3cc).
+    x = F.grid_sample(x, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
     c = aug.get("color", 0.3)
     if c:
         x = x * U(1 - c, 1 + c).view(B, 1, 1, 1)                       # brightness

@@ -186,7 +186,7 @@ def main(argv=None):
     ap.add_argument("--workers", type=int)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--overwrite", action="store_true")
-    ap.add_argument("--set", nargs="*", help="config overrides, e.g. extraction.pose_model=pose_landmarker_heavy.task")
+    ap.add_argument("--set", nargs="*", action="extend", help="config overrides, e.g. extraction.pose_model=pose_landmarker_heavy.task")
     args = ap.parse_args(argv)
     cfg = load_config(args.config, parse_overrides(args.set))
 

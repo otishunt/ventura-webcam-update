@@ -145,6 +145,11 @@ def cmd_recheck(cfg, gen_cfg, a) -> int:
             continue
         res = pd.read_csv(part)
         rows = []
+        res = res.drop_duplicates(["syn_id", "backend"], keep="last")
+        stale = ~res.syn_id.isin(plan.index)
+        if stale.any():  # results from an older plan.csv: leave them out rather than crash
+            print(f"{part.name}: {int(stale.sum())} results are not in plan.csv, dropped", flush=True)
+            res = res[~stale]
         for r in res.itertuples(index=False):
             row = plan.loc[r.syn_id].to_dict()
             if row["gen_path"] not in src_cache:  # one source frame serves all its variants
@@ -166,25 +171,45 @@ def cmd_recheck(cfg, gen_cfg, a) -> int:
 def cmd_merge(cfg, gen_cfg, a) -> int:
     crops, out = _dirs(cfg, a.name)
     plan = pd.read_csv(out / "plan.csv", dtype={"clip_id": str, "person_id": str, "session_id": str})
-    parts = sorted((out / "parts").glob("results.*.csv"))
+    # a job killed during its first edit leaves an empty file, which read_csv cannot parse
+    parts = [p for p in sorted((out / "parts").glob("results.*.csv")) if p.stat().st_size > 0]
     if not parts:
         print("no results yet")
         return 1
     res = pd.concat([pd.read_csv(p) for p in parts], ignore_index=True)
+    # a resubmitted shard can redo an edit whose first result was already written: keep the last
+    res = res.drop_duplicates(["syn_id", "backend"], keep="last")
+    res["accepted"] = res.accepted.astype(str).str.lower() == "true"
     df = plan.merge(res, on="syn_id")
+    if df.empty:
+        print("the results do not match plan.csv (was the run re-planned after it was edited?)")
+        return 1
     df.to_csv(out / "synthetic_frames.csv", index=False)
     acc = df.pivot_table(index="label", columns="face_attr", values="accepted", aggfunc="mean")
     acc.round(2).to_csv(out / "acceptance_by_label_attr.csv")
     by_val = df.groupby(["face_attr", "face_value"]).accepted.agg(["mean", "size"]).round(3)
     by_val.to_csv(out / "acceptance_by_attribute.csv")
-    reasons = (df.loc[~df.accepted.astype(bool), "reasons"].fillna("").str.split(";").explode()
-               .value_counts())
+    reasons = df.loc[~df.accepted, "reasons"].fillna("").str.split(";").explode().value_counts()
     reasons.to_csv(out / "rejection_reasons.csv")
+    # One run can hold several editors (the prototype compares klein and Qwen on the same
+    # plan); the tables above pool them, so also report each backend on its own.
+    by_backend = df.groupby("backend").agg(edits=("accepted", "size"), accepted=("accepted", "mean"),
+                                           median_gen_seconds=("gen_seconds", "median")).round(3)
+    by_backend.to_csv(out / "acceptance_by_backend.csv")
+    by_backend_label = df.pivot_table(index="label", columns="backend", values="accepted", aggfunc="mean")
+    by_backend_label.round(2).to_csv(out / "acceptance_by_backend_label.csv")
+    rej = df[~df.accepted].assign(reason=lambda d: d.reasons.fillna("").str.split(";")).explode("reason")
+    by_backend_reason = rej.groupby(["backend", "reason"]).size().rename("count").reset_index()
+    by_backend_reason.to_csv(out / "rejection_reasons_by_backend.csv", index=False)
     print(f"{len(df)} edits, {df.accepted.mean():.1%} accepted, "
           f"median {df.gen_seconds.median():.1f} s/edit\n")
-    print("acceptance by label x attribute:\n" + acc.round(2).to_string())
+    print("by backend:\n" + by_backend.to_string())
+    print("\nacceptance by label x attribute:\n" + acc.round(2).to_string())
     print("\nacceptance by attribute value:\n" + by_val.to_string())
     print("\nrejection reasons:\n" + reasons.to_string())
+    if df.backend.nunique() > 1:
+        print("\nacceptance by label x backend:\n" + by_backend_label.round(2).to_string())
+        print("\nrejection reasons by backend:\n" + by_backend_reason.to_string(index=False))
     return 0
 
 
@@ -207,7 +232,7 @@ def main(argv=None):
     ap.add_argument("--cpu-offload", action="store_true", help="lower GPU memory, slower (CUDA only)")
     ap.add_argument("--low-memory", action="store_true",
                     help="encode prompts first, then load the image model (automatic on Apple GPUs)")
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     gen_cfg = load_gen_config(a.gen_config)

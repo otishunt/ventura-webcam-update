@@ -194,6 +194,9 @@ def export(cfg, gen_cfg: dict, out_dir: Path, limit: int | None = None) -> pd.Da
                 j += 1
             i += 1
         cap.release()
+        if j < len(wanted):  # the video would not open, or ended before the landmarks did
+            print(f"  WARNING {r.clip_id}: video ended at frame {i}, {len(wanted) - j} of "
+                  f"{len(wanted)} wanted frames not exported", file=sys.stderr, flush=True)
         if k % 25 == 0:
             print(f"  {k}/{len(df)} clips", flush=True)
     out = pd.DataFrame(rows)
@@ -206,7 +209,7 @@ def main(argv=None):
     ap.add_argument("--config")
     ap.add_argument("--gen-config")
     ap.add_argument("--limit", type=int, help="only the first N clips (quick check)")
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     out = export(cfg, load_gen_config(a.gen_config), cfg.path("crops"), a.limit)

@@ -1,10 +1,10 @@
 #!/bin/bash
 # M0 + M1 baselines on Delta. Usually NOT needed: run them free on the Mac (scripts/run_mac.sh).
-# Requests one A40's share (<=16 cores, <=60 GB) so it bills 0.5 SU per hour.
+# Requests one GPU's share (<=16 cores, <=60 GB); on an A40 that bills 0.5 SU per hour.
 # Submit from the repo root:   sbatch slurm/baselines.slurm
 # While only one person has recorded:   sbatch --export=ALL,SPLIT=loso slurm/baselines.slurm
 #SBATCH --job-name=memepose-baselines
-#SBATCH --partition=gpuA40x4
+#SBATCH --partition=gpuA40x4,gpuA100x4,gpuH200x8
 #SBATCH --account=bjeg-delta-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1

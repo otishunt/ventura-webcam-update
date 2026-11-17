@@ -137,7 +137,7 @@ def load_frame_labels(cfg: Config) -> dict[str, np.ndarray]:
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
-    ap.add_argument("--set", nargs="*")
+    ap.add_argument("--set", nargs="*", action="extend")
     args = ap.parse_args(argv)
     cfg = load_config(args.config, parse_overrides(args.set))
     df = load_manifest(cfg)

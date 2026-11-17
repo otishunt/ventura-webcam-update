@@ -50,6 +50,28 @@ data rules: read logs and metrics, never images or videos. Delta commands always
    - Compare with M1 on the same split: `runs/m1_lopo_aug/metrics.json` and
      `runs/m1_lopo_noaug/metrics.json` on this Mac (0.715 / 0.708 frame F1).
 
+## Amendment — 20:09 PST, queue very backed up (~2,100 jobs)
+
+Otis shortened the pending M2 jobs' time limits in place (no cancel/resubmit, keeps queue
+position) via `scontrol update JobId=<id> TimeLimit=<hh:mm:ss>`:
+- 24030547 (DINOv2 ViT-S) → 01:30:00
+- 24030571 (EfficientNet-B0) → 01:00:00
+- 24030569 (qwen gen) left at its original 01:00:00 — do not touch it.
+
+Confirm any such change with `squeue -u $USER -o "%.10i %.20j %.8T %.10l %R"` and log the new
+limits in `runs/delta/NOTES.md`.
+
+**Updated TIMEOUT handling for the M2 jobs** (overrides the generic failure rule in "Do NOT"
+below, for 24030547/24030571 only): each seed writes its own
+`runs/m2_<backbone>_lopo_s<seed>/metrics.json` on Delta. On TIMEOUT, check which seed dirs
+already have `metrics.json`, note that in NOTES.md, and resubmit **only the missing seeds**,
+one job per seed, `-t 01:30:00`, from `~/ventura-webcam-update`, e.g.:
+`sbatch -t 01:30:00 --export=ALL,SEEDS=2 slurm/m2.slurm` (add `BACKBONE=efficientnet_b0` for
+the CNN job).
+
+Everything else below still applies (gpuA40x4 only, ~10 SU cap, no images, keep looping on
+24030547/24030571/24030569 every ~9 min, write SUMMARY.md at the end or after 4h).
+
 ## Do NOT
 
 - Submit anything not listed above. No bulk generation: Otis must look at the prototype
