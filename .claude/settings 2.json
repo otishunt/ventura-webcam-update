@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./meme-recorder/data/**)", "Read(./meme-recorder/exports/**)", "Read(./meme-recorder/.backup/**)",
+      "Read(./work/crops/**)", "Read(./work/synthetic/**)", "Read(./runs/delta/**/images/**)",
+      "Read(**/*.mp4)", "Read(**/*.webm)", "Read(./work/**/*.jpg)"
+    ]
+  }
+}
