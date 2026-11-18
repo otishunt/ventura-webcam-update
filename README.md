@@ -1,6 +1,6 @@
 # Ventura Webcam: Meme Pose Recognition with Synthetic Domain Randomization
 
-DATA 4620 final project · Otis Hunt, Carson, Minh, Kevin · Fall 2026
+DATA 4620 final project · Otis Hunt, Carson Neubert, Minh Ho-Hoang, Kevin Feng · Fall 2026
 
 A live webcam system that recognizes which meme a person is imitating and replaces the
 camera feed with that meme. The research question is about data: **all of our training
