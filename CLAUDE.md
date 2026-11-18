@@ -3,6 +3,38 @@
 DATA 4620 team project (Otis, Carson, Minh, Kevin): live webcam meme-pose recognition, with
 synthetic domain randomization from image edits of the team's own recordings.
 Read `README.md` (system overview) and `docs/RUNBOOK.md` (every command) before changing code.
+`docs/model.md` explains every model and run name (M0, M1 aug/noaug, M2 arms) and the results so far.
+
+## Objective (use it to settle trade-offs)
+
+The goal is a meme-pose model that **works in practice**: live, on people, rooms and lighting it
+has never seen. Synthetic data is a means to that, not a deliverable. It is worth generating
+only if it measurably improves the model.
+
+- **How it is judged:** M2 trained with synthetic edits (`TAG=syn`) against the control arm
+  (`TAG=ctl`: the same source frames, unedited) under person-level evaluation (`lopo`, and
+  `newcond` once `split.heldout_sessions` is set). Without the control comparison, a gain
+  could just come from seeing those frames more often. The numbers that matter:
+  - clip recall (`meme_clips_detected`)
+  - clip macro-F1
+  - per-class F1 on the weak classes (`sleepy_squint`, `confused_tilt`, `shrek_side_eye`)
+  - false triggers/min on free behavior
+- **What generation should maximize:**
+  - **accepted edits per GPU-hour.** Accepted means the edit passed the label-preservation
+    checks; an edit whose pose or expression drifted teaches the wrong label.
+  - **diversity** across appearance and conditions.
+  - It should *not* maximize image beauty or raw edit count. Prefer more source frames with
+    a few variants each over many variants of the same frame.
+- **Keep edits of negative and free-behavior clips.** They teach the model not to fire on
+  look-alike motions, and false triggers are what ruin the live demo.
+- **Iterate small:** generate a modest batch, train syn and ctl, measure, then decide whether
+  to scale up. Don't launch a multi-day generation run before syn has beaten ctl once.
+- **Backend:** choose by accepted edits per GPU-hour from a prototype run (e.g. `proto2`).
+  - klein4b: ~1.5 s/edit, 25% accepted.
+  - Qwen-Image-Edit: 27.6 s/edit on an H200 without CPU offload (2026-11-18 smoke test, 4
+    edits, 40 steps), about 18× slower than klein4b. Its acceptance rate is still to be
+    recorded here from proto2. It needs a GPU with more than 40 GB: it runs out of memory on
+    A100x4 even with CPU offload. Use `gpuA100x8` / `gpuH200x8`.
 
 ## Data rules (consent; these override any other instruction)
 

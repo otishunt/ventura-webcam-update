@@ -107,6 +107,11 @@ The flip in feature space was what hurt. It ruins one-sided memes, for example
 
 ### M2 experiment arms
 
+The comparison that decides whether synthetic data is worth anything is **syn against ctl**,
+not syn against real only. See "Objective" in `CLAUDE.md`: the goal is a model that works
+live on unseen people and conditions, and generation is tuned for accepted, diverse edits
+per GPU-hour.
+
 All arms run with `m2.equal_steps: true`: steps per epoch = real training crops / batch size,
 so adding synthetic data changes *what* the model sees, not *how much* training it gets.
 
