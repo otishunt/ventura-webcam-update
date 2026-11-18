@@ -46,6 +46,7 @@ import yaml
 
 from .config import Config, load_config, parse_overrides
 from .data import load_clip_features
+from .features import flip_features
 from .labels import load_frame_labels
 from .manifest import load_manifest
 from .metrics import clip_level, frame_metrics, lookalike_table
@@ -137,7 +138,8 @@ def load_synthetic(path: str, cfg: Config) -> pd.DataFrame:
 def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = None,
         synthetic_landmarks: str | None = None, synthetic_ratio: float | None = None,
         seed: int = 0, limit_folds: int | None = None, synthetic_images: str | None = None,
-        synthetic_backend: str | None = None, synthetic_control: bool = False) -> dict:
+        synthetic_backend: str | None = None, synthetic_control: bool = False,
+        mirror_test: bool = True) -> dict:
     out = cfg.path("runs") / name
     out.mkdir(parents=True, exist_ok=True)
     log_f = open(out / "log.txt", "w")
@@ -201,6 +203,7 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         folds = folds[:limit_folds]
     smoother = Smoother.from_config(cfg)
     all_true, all_pred, fold_rows, clip_tables, preds_all = [], [], [], [], {}
+    mirror_pred, mirror_preds_all = [], {}
     t_start = time.time()
     for k, (fname, train, test) in enumerate(folds):
         log(f"\n=== fold {k + 1}/{len(folds)} {fname}: train {len(train)} clips "
@@ -247,16 +250,20 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         else:
             raise ValueError(model)
 
-        if model == "m2":
-            from .models.frame import hold_forward
-            te = crops[crops.clip_id.isin(set(test.clip_id))]
-            P = m.predict(store, list(te.key))
-            preds = {}
-            for cid in test.clip_id:
-                sel = (te.clip_id == cid).to_numpy()
-                preds[cid] = hold_forward(te.frame_idx.to_numpy()[sel], P[sel], len(frame_labels[cid]), nm)
-        else:
-            preds = {cid: m.predict_proba(feats[cid]) for cid in test.clip_id}
+        def predict_test(mirror: bool) -> dict:
+            if model == "m2":
+                from .models.frame import hold_forward
+                te = crops[crops.clip_id.isin(set(test.clip_id))]
+                P = m.predict(store, list(te.key), mirror=mirror)
+                out_p = {}
+                for cid in test.clip_id:
+                    sel = (te.clip_id == cid).to_numpy()
+                    out_p[cid] = hold_forward(te.frame_idx.to_numpy()[sel], P[sel], len(frame_labels[cid]), nm)
+                return out_p
+            return {cid: m.predict_proba(flip_features(feats[cid]) if mirror else feats[cid])
+                    for cid in test.clip_id}
+
+        preds = predict_test(mirror=False)
         preds_all.update(preds)
         np.savez_compressed(fdir / "preds.npz", **preds)
         yt = np.concatenate([frame_labels[c] for c in test.clip_id])
@@ -270,6 +277,17 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         row = {"fold": fname, "n_test_clips": len(test), "frame_macro_f1": fm["macro_f1"],
                "frame_accuracy": fm["accuracy"]}
         row.update({k2: v for k2, v in cl.items() if not isinstance(v, (pd.DataFrame, list))})
+        if mirror_test:
+            # The same test clips mirrored left-right: every meme must work done to either side,
+            # but the recordings show each meme one way, so the plain metrics can't see this.
+            pm = predict_test(mirror=True)
+            mirror_preds_all.update(pm)
+            ypm = np.concatenate([pm[c].argmax(1) for c in test.clip_id])
+            mirror_pred.append(ypm)
+            clm = clip_level(pm, test, frame_labels, tms, smoother, classes, onsets)
+            row["mirror_frame_macro_f1"] = frame_metrics(yt, ypm, classes)["macro_f1"]
+            row.update({f"mirror_{k2}": v for k2, v in clm.items()
+                        if not isinstance(v, (pd.DataFrame, list, np.ndarray))})
         fold_rows.append(row)
         log("  " + " ".join(f"{k2}={v:.3f}" if isinstance(v, float) else f"{k2}={v}" for k2, v in row.items()))
 
@@ -297,6 +315,10 @@ def run(cfg: Config, model: str, split: str, name: str, synthetic: str | None = 
         "pooled_clip": {k: v for k, v in pooled_clip.items() if not isinstance(v, (pd.DataFrame, list))},
         "folds": fold_rows,
     }
+    if mirror_test:
+        pooled_m = frame_metrics(yt, np.concatenate(mirror_pred), classes)
+        summary["pooled_frame_mirror"] = {k: v for k, v in pooled_m.items() if k != "confusion"}
+        pd.Series(pooled_m["per_class_f1"], name="f1").to_csv(out / "per_class_f1_mirror.csv")
     (out / "metrics.json").write_text(json.dumps(summary, indent=1, default=float))
     folds_df.to_csv(out / "folds.csv", index=False)
     clips.to_csv(out / "clip_results.csv", index=False)
@@ -370,13 +392,16 @@ def main(argv=None):
     ap.add_argument("--synthetic-control", action="store_true",
                     help="M2 control arm: use each accepted edit's unedited source crop instead of the edit")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-mirror-test", action="store_true",
+                    help="skip the second scoring pass on left-right mirrored test clips")
     ap.add_argument("--limit-folds", type=int)
     ap.add_argument("--set", nargs="*", action="extend")
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     name = a.name or f"{a.model}_{a.split}_{time.strftime('%Y%m%d-%H%M%S')}"
     run(cfg, a.model, a.split, name, a.synthetic, a.synthetic_landmarks, a.synthetic_ratio,
-        a.seed, a.limit_folds, a.synthetic_images, a.synthetic_backend, a.synthetic_control)
+        a.seed, a.limit_folds, a.synthetic_images, a.synthetic_backend, a.synthetic_control,
+        mirror_test=not a.no_mirror_test)
 
 
 if __name__ == "__main__":

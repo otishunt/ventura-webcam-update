@@ -270,12 +270,16 @@ class FrameModel:
         return self
 
     @torch.no_grad()
-    def predict(self, store: CropStore, keys: list[str], batch: int = 256) -> np.ndarray:
-        """Class probabilities (N, C) for crops in the store."""
+    def predict(self, store: CropStore, keys: list[str], batch: int = 256,
+                mirror: bool = False) -> np.ndarray:
+        """Class probabilities (N, C) for crops in the store. mirror=True scores each crop's
+        horizontal mirror image (the same pose done to the other side)."""
         self.net.eval()
         out = []
         for i in range(0, len(keys), batch):
             x = to_input(store.get(keys[i:i + batch]), self.device, self.size)
+            if mirror:
+                x = torch.flip(x, dims=[3])
             with self._autocast():
                 out.append(torch.softmax(self.net(x).float(), -1).cpu().numpy())
         return np.concatenate(out) if out else np.zeros((0, len(self.classes)), np.float32)

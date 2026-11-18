@@ -76,10 +76,16 @@ as the starting point (`full`), then removes one augmentation at a time. Results
 | `no_timescale` | full minus time-scale | 0.678 ± 0.041 |
 | `no_dropout` | full minus feature dropout | 0.649 ± 0.011 |
 
-The flip in feature space was what hurt. It ruins one-sided memes, for example
-`shrek_side_eye` F1 fell from 0.77 to 0.38. That is why `flip_p` is now 0, so the current
-"M1 aug" is effectively `no_flip`. With flip off, the other three augmentations help a little
-(0.739 vs 0.719 for `none`).
+On the plain test clips, the flip in feature space was what hurt: `shrek_side_eye` F1 fell
+from 0.77 to 0.38. That is why `flip_p` is now 0, so the current "M1 aug" is effectively
+`no_flip`. With flip off, the other three augmentations help a little (0.739 vs 0.719 for
+`none`).
+
+**Caveat:** every meme must also work mirrored (see "Objective" in `CLAUDE.md`), but the test
+clips show each meme only the way it was recorded. This ablation could only show flip's cost,
+never its benefit. Rerun it with the mirrored test pass (`mirror_*` metrics, on by default
+since 2026-11-18) before treating `flip_p: 0` as settled. A model with no flip may score
+near zero on mirrored poses.
 
 ## M2: frame model on crops
 

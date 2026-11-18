@@ -17,7 +17,9 @@ import yaml
 from .config import load_config, parse_overrides
 
 COLS = ["frame_macro_f1", "clip_macro_f1", "clip_accuracy", "false_triggers_per_min_free",
-        "negative_clips_with_trigger", "meme_clips_detected", "latency_ms_median"]
+        "negative_clips_with_trigger", "meme_clips_detected", "latency_ms_median",
+        # the same test clips mirrored left-right (every meme must work done to either side)
+        "mirror_frame_macro_f1", "mirror_clip_macro_f1", "mirror_meme_clips_detected"]
 SEED_RE = re.compile(r"^(.*)_s(\d+)$")
 
 
