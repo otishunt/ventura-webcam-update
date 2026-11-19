@@ -25,15 +25,31 @@ only if it measurably improves the model.
   - **diversity** across appearance and conditions.
   - It should *not* maximize image beauty or raw edit count. Prefer more source frames with
     a few variants each over many variants of the same frame.
+- **Every meme must work mirrored.** No meme is tied to one side: a head tilt, lopsided grin,
+  side-eye or point to the other side counts as the same meme. The recordings mostly show each
+  meme one way, so the plain test metrics can't see this. `memepose.evaluate` therefore also
+  scores the mirrored test clips (`mirror_*` columns and `per_class_f1_mirror.csv`; disable with
+  `--no-mirror-test`). Judge flip augmentation (M1 `flip_p`, M2 `m2.aug.flip_p`) on the
+  mirrored metrics as well as the plain ones. A flip that lowers plain F1 a little but keeps
+  the mirrored F1 from collapsing is the right call. The 2026-11-15 M1 ablation that turned
+  flip off measured only the plain metrics.
 - **Keep edits of negative and free-behavior clips.** They teach the model not to fire on
   look-alike motions, and false triggers are what ruin the live demo.
 - **Iterate small:** generate a modest batch, train syn and ctl, measure, then decide whether
   to scale up. Don't launch a multi-day generation run before syn has beaten ctl once.
 - **Backend:** choose by accepted edits per GPU-hour from a prototype run (e.g. `proto2`).
-  - klein4b: ~1.5 s/edit, 25% accepted.
-  - Qwen-Image-Edit: 27.6 s/edit on an H200 without CPU offload (2026-11-18 smoke test, 4
-    edits, 40 steps), about 18× slower than klein4b. Its acceptance rate is still to be
-    recorded here from proto2. It needs a GPU with more than 40 GB: it runs out of memory on
+  - klein4b: median 1.1 s/edit, 11/24 accepted (46%) on proto2 (run 24050216, 2026-11-18,
+    black padding). The older 25% figure came from the mirror-padded run.
+  - Qwen-Image-Edit: median 24 s/edit on an H200 without CPU offload, about 20× slower than
+    klein4b. On proto2 (job 24128628, 2026-11-18) it accepted 6/24 (25%), against klein's
+    11/24 on the same edits. Its main rejection is `head_tilt_changed` (8 edits; one head
+    turned 26°), then `hand_lost` (5). Since an acceptance rate can't exceed 100%, Qwen can't
+    match klein on accepted edits per GPU-hour. The team judged Qwen's images better looking,
+    so Qwen is a quality/diversity comparison. On `proto3` (96 edits, jobs 24133036/24134152,
+    2026-11-18) klein4b accepted 47.9% at a median 2.2 s/edit on an A40, against Qwen's 41.7% at
+    23.8 s on an H200: klein gives about 10× the accepted edits per GPU-hour, so **klein4b is the
+    bulk backend** (`batch1`). `shrek_side_eye` passed 0/8 on both backends, all on
+    `key_expression_changed`: the editors pull the sideways gaze back toward the camera. Qwen needs a GPU with more than 40 GB: it runs out of memory on
     A100x4 even with CPU offload. Use `gpuA100x8` / `gpuH200x8`.
 
 ## Data rules (consent; these override any other instruction)

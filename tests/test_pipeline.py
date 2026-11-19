@@ -138,6 +138,11 @@ def test_end_to_end(tmp_path):
     assert "synthetic clips from ['person1']" in log  # fold testing person2
     m = json.loads((tmp_path / "runs/m1/metrics.json").read_text())
     assert "pooled_frame" in m and (tmp_path / "runs/m1/confusion_frame.csv").exists()
+    # mirrored test pass: every meme must also be recognised done to the other side
+    assert 0 <= m["fold_mean"]["mirror_frame_macro_f1"] <= 1 and "mirror_clip_macro_f1" in m["fold_mean"]
+    assert "pooled_frame_mirror" in m and (tmp_path / "runs/m1/per_class_f1_mirror.csv").exists()
+    s0b = run(cfg, "m0", "lopo", "m0_nomirror", mirror_test=False, limit_folds=1)
+    assert not any(k.startswith("mirror_") for k in s0b["fold_mean"])
 
 
 def test_extract_clip_with_stub_landmarkers(tmp_path, monkeypatch):
@@ -303,6 +308,7 @@ def test_m2_end_to_end(tmp_path):
     s = run(cfg, "m2", "lopo", "m2", synthetic_images=str(sdir / "synthetic_frames.csv"))
     assert f"{len(fr)} real crops ({len(fr) - 1} labelled)" in (tmp_path / "runs/m2/log.txt").read_text()
     assert s["n_folds"] == 2 and 0 <= s["fold_mean"]["frame_macro_f1"] <= 1
+    assert 0 <= s["fold_mean"]["mirror_frame_macro_f1"] <= 1 and "pooled_frame_mirror" in s
     log = (tmp_path / "runs/m2/log.txt").read_text()
     assert "15 accepted synthetic images available" in log
     assert "+ 0 synthetic images" in log
