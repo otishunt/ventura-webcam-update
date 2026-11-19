@@ -20,7 +20,7 @@ false triggers per minute on free-behavior clips, and delay until a meme is show
 | **M1 noaug** | 1 s of landmark features | GRU, real data only | `memepose/models/temporal.py` | Mac | `m1_lopo_noaug` |
 | **M1 aug** | 1 s of landmark features | same GRU, plus classic feature-space augmentation | `memepose/models/temporal.py` | Mac | `m1_lopo_aug`, `abl_*_s{0,1,2}` |
 | **M2** | face and upper-body crop, per frame | pretrained image backbone, fine-tuned | `memepose/models/frame.py` | Delta GPU | `m2_<backbone>_<split>_s<seed>` |
-| **M2 syn / ctl** | crops + synthetic edits | M2 with accepted synthetic frames, or the matched control | `memepose/models/frame.py` | Delta GPU | `m2_..._syn_*`, `m2_..._ctl_*` (not run yet) |
+| **M2 syn / ctl** | crops + synthetic edits | M2 with accepted synthetic frames, or the matched control | `memepose/models/frame.py` | Delta GPU | `m2_..._syn_b1_*`, `m2_..._ctl_b1_*` (queued 2026-11-19) |
 | M3 | landmarks + crops | M1 and M2 combined (stretch goal) | — | — | not built |
 
 ## M0: rules
@@ -84,8 +84,12 @@ from 0.77 to 0.38. That is why `flip_p` is now 0, so the current "M1 aug" is eff
 **Caveat:** every meme must also work mirrored (see "Objective" in `CLAUDE.md`), but the test
 clips show each meme only the way it was recorded. This ablation could only show flip's cost,
 never its benefit. Rerun it with the mirrored test pass (`mirror_*` metrics, on by default
-since 2026-11-18) before treating `flip_p: 0` as settled. A model with no flip may score
-near zero on mirrored poses.
+since 2026-11-18) before treating `flip_p: 0` as settled.
+
+**Rerun, 2026-11-18 (`runs/m1m_*`, LOPO):** without flip, the mirrored frame F1 fell to
+0.54–0.56, against 0.72 plain, and `shrek_side_eye` scored 0.00 mirrored. With flip
+(`flip_p 0.5`), the mirrored F1 was 0.70–0.74, the same as plain, and plain F1 was no worse
+than without flip. **M1's `flip_p` is back to 0.5.**
 
 ## M2: frame model on crops
 
@@ -126,7 +130,7 @@ so adding synthetic data changes *what* the model sees, not *how much* training 
 | real + classic aug | `sbatch slurm/m2.slurm` | baseline (done) |
 | **syn** | `TAG=syn`, `--synthetic-images .../synthetic/main/synthetic_frames.csv` | does adding accepted synthetic edits help? |
 | **ctl** | `TAG=ctl`, `--synthetic-control --synthetic-images ...` | control arm: the same source frames as `syn`, unedited, so any gain from `syn` can't be explained by simply having more copies of those frames |
-| noflip | `TAG=noflip`, `--set m2.aug.flip_p=0` | does the pixel flip hurt one-sided memes the way M1's flip did? |
+| noflip | `TAG=noflip`, `--set m2.aug.flip_p=0` | does the pixel flip hurt one-sided memes the way M1's flip did? **No** (see results): flip stays on |
 | newcond | `SPLIT=newcond` | held-out sessions in new rooms, lighting and outfits (needs `split.heldout_sessions` set) |
 
 A fold never trains on the test person's real frames **or their synthetic variants**: synthetic
@@ -142,6 +146,7 @@ frames follow their source clip.
 | M1 aug (no flip) | `m1_lopo_aug` | 0.715 ± 0.021 | 0.756 ± 0.027 | 2.2 | 1 seed, 3 folds |
 | M1 aug (no flip), ablation | `abl_no_flip_s*` | 0.739 ± 0.019 | 0.757 ± 0.025 | 3.8 | 3 seeds, sd across seeds |
 | **M2 DINOv2 ViT-S** | `m2_dinov2_s_lopo_s*` | **0.772 ± 0.008** | 0.703 ± 0.024 | 1.1 | 3 seeds, sd across seeds |
+| M2 DINOv2, no flip | `m2_dinov2_s_lopo_noflip_s*` | 0.762 ± 0.010 | 0.656 ± 0.037 | 1.4 | 3 seeds; plain test clips only (ran before the mirrored pass) |
 | M2 EfficientNet-B0 | `m2_efficientnet_b0_lopo_s*` | 0.519 ± 0.019 | 0.114 ± 0.012 | 0.0 | 3 seeds; almost never fires (6% of meme clips detected) |
 
 Sources: `runs/comparison.md`, `runs/ablation_summary.md` (Mac) and
@@ -156,4 +161,8 @@ Takeaways so far:
 - DINOv2 M2's clip F1 (0.70) is below M1's, because it detects only about 63% of meme clips: it
   is conservative.
 - EfficientNet-B0 at these settings mostly predicts `no_meme`.
-- The synthetic arms (syn and ctl) are waiting on bulk generation.
+- Turning M2's pixel flip off makes it worse even on the plain test clips (clip F1 0.656 vs
+  0.703, meme clips detected 0.58 vs 0.63), so `m2.aug.flip_p` stays 0.5. Both M2 arms are being
+  rerun with the mirrored test pass (`TAG=mirror`, `TAG=noflip_mirror`).
+- Synthetic arms: `batch1` (every source frame × 2 klein4b variants, 4,234 edits) is queued,
+  followed by `syn_b1` and `ctl_b1`. Compare them against `m2_dinov2_s_lopo_mirror`.

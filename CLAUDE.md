@@ -45,7 +45,11 @@ only if it measurably improves the model.
     11/24 on the same edits. Its main rejection is `head_tilt_changed` (8 edits; one head
     turned 26°), then `hand_lost` (5). Since an acceptance rate can't exceed 100%, Qwen can't
     match klein on accepted edits per GPU-hour. The team judged Qwen's images better looking,
-    so Qwen is a quality/diversity comparison; `proto3` (96 edits) tests it at a larger scale. It needs a GPU with more than 40 GB: it runs out of memory on
+    so Qwen is a quality/diversity comparison. On `proto3` (96 edits, jobs 24133036/24134152,
+    2026-11-18) klein4b accepted 47.9% at a median 2.2 s/edit on an A40, against Qwen's 41.7% at
+    23.8 s on an H200: klein gives about 10× the accepted edits per GPU-hour, so **klein4b is the
+    bulk backend** (`batch1`). `shrek_side_eye` passed 0/8 on both backends, all on
+    `key_expression_changed`: the editors pull the sideways gaze back toward the camera. Qwen needs a GPU with more than 40 GB: it runs out of memory on
     A100x4 even with CPU offload. Use `gpuA100x8` / `gpuH200x8`.
 
 ## Data rules (consent; these override any other instruction)

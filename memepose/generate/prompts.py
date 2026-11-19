@@ -35,10 +35,14 @@ def expression_text(blend: np.ndarray, roll_rad: float = 0.0) -> str:
         parts.append("eyes open")
     toward_img_right = _b(blend, "eyeLookOutLeft") + _b(blend, "eyeLookInRight")
     toward_img_left = _b(blend, "eyeLookInLeft") + _b(blend, "eyeLookOutRight")
-    if toward_img_right - toward_img_left > 0.4:
-        parts.append("eyes glancing sideways toward the right side of the image")
-    elif toward_img_left - toward_img_right > 0.4:
-        parts.append("eyes glancing sideways toward the left side of the image")
+    # Editors tend to re-center a sideways gaze onto the camera (proto3: every shrek_side_eye
+    # edit failed key_expression_changed), so the gaze is described emphatically.
+    for side, diff in (("right", toward_img_right - toward_img_left),
+                       ("left", toward_img_left - toward_img_right)):
+        if diff > 0.4:
+            parts.append(f"a strong sideways side-eye glance toward the {side} side of the image, "
+                         "irises pushed into the far corners of the eyes, NOT looking at the camera")
+            break
     else:
         parts.append("looking at the camera")
     up_l, up_r = _b(blend, "browOuterUpLeft"), _b(blend, "browOuterUpRight")

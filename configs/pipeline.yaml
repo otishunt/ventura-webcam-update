@@ -80,8 +80,11 @@ m1:
   class_weight_power: 0.5   # loss weight = (1/freq)^power
   augment: classic          # none | classic
   aug:
-    flip_p: 0.0             # off: the 3-seed ablation (2026-11-15) showed feature-space flip hurts
-                            # one-sided memes (shrek_side_eye 0.77 -> 0.38); see RESULTS_LOG
+    flip_p: 0.5             # ON: every meme must work mirrored. 2026-11-18 mirrored-test runs
+                            # (runs/m1m_*): without flip, mirrored frame F1 drops to ~0.55 and
+                            # shrek_side_eye to 0.00; with flip, mirrored ~= plain (~0.72), and
+                            # plain F1 is about the same as no-flip. (The 2026-11-15 ablation
+                            # that turned it off measured plain test clips only.)
     noise_std: 0.03         # in standardized feature units
     time_scale: [0.8, 1.25] # speed jitter (stand-in for frame-rate jitter)
     feature_dropout_p: 0.1  # randomly zero a whole hand / face block
