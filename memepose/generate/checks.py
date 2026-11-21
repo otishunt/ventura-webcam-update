@@ -63,8 +63,15 @@ def _hands_present(F: np.ndarray, fi) -> list[int]:
     return [s for s in (0, 1) if F[0, fi[f"h{s}_present"]] > 0.5]
 
 
+def label_checks(checks: dict, label: str) -> dict:
+    """The check settings for one label: the global values, with checks.per_label[label] on top."""
+    over = (checks.get("per_label") or {}).get(label) or {}
+    return {**checks, **over} if over else checks
+
+
 def compare(src_rgb, src_lm: ClipLandmarks, out_rgb, out_lm: ClipLandmarks, label: str,
             plan_row: dict, checks: dict) -> dict:
+    checks = label_checks(checks, label)
     fi = feature_index()
     m: dict = {"reasons": []}
     src_face = not np.isnan(src_lm.face[0, 0, 0])
@@ -95,7 +102,9 @@ def compare(src_rgb, src_lm: ClipLandmarks, out_rgb, out_lm: ClipLandmarks, labe
         j = MEMES.index(label)
         s_src, s_out = float(rule_scores(Fs)[0, j]), float(rule_scores(Fo)[0, j])
         m["rule_src"], m["rule_out"] = s_src, s_out
-        if s_src > 0.05 and s_out / s_src < checks["min_rule_ratio"]:
+        # A ratio of two small scores is mostly noise: only judge it when the rule clearly fired
+        # on the source (batch1: arms_raised / hands_on_head sources often scored 0.1-0.3).
+        if s_src >= checks.get("min_rule_src", 0.05) and s_out / s_src < checks["min_rule_ratio"]:
             m["reasons"].append("meme_score_dropped")
 
     if label in checks["hand_memes"]:
@@ -119,7 +128,11 @@ def compare(src_rgb, src_lm: ClipLandmarks, out_rgb, out_lm: ClipLandmarks, labe
                 m["reasons"].append("fingers_changed")
         if len(ho) < len(hs) and len(deltas) < len(hs):
             m["reasons"].append("hand_lost")          # a source hand has no counterpart in the edit
-        elif len(ho) > len(hs) and checks.get("reject_extra_hands", True):
+        elif (len(ho) > len(hs) and checks.get("reject_extra_hands", True)
+              # MediaPipe misses hands on single images; a hand found only in the edit is a
+              # detector miss on the source, not a new hand (batch1: 0 -> 1 on 51 point_sideways
+              # edits). Two-hand memes show both hands, so a second hand found is expected.
+              and len(hs) > 0 and label not in checks.get("two_hand_memes", [])):
             m["reasons"].append("hand_added")
         joints = [C.L_ELBOW, C.R_ELBOW, C.L_WRIST, C.R_WRIST]
         d = [np.hypot(Fs[0, fi[f"pose{j}_x"]] - Fo[0, fi[f"pose{j}_x"]],

@@ -1,9 +1,10 @@
 """Plan, run and summarize synthetic frame generation.
 
-    python -m memepose.generate.run plan  [--variants 5] [--per-label 2] [--no-feature-prompt] [--name NAME]
+    python -m memepose.generate.run plan  [--variants 5] [--per-label 2] [--skip-labels a,b] [--no-feature-prompt] [--name NAME]
     python -m memepose.generate.run edit  --backend klein4b [--limit 20] [--shard 0 --num-shards 4]
     python -m memepose.generate.run merge          # -> synthetic_frames.csv + acceptance tables
     python -m memepose.generate.run recheck        # redo the L4 checks on saved edits (CPU only)
+    python -m memepose.generate.run retry [--labels a,b]  # new-seed copies of rejected edits -> plan.csv
 
 `plan` assigns balanced attributes (per label) and writes the exact prompt and seed for every
 edit, so runs are reproducible and can be split across GPUs. `edit` is resumable: rerunning
@@ -43,6 +44,8 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     crops, out = _dirs(cfg, a.name)
     frames = pd.read_csv(crops / "frames.csv", dtype={"clip_id": str, "person_id": str, "session_id": str})
     src = frames[(frames.gen_path.fillna("") != "") & (~frames.heldout.astype(bool))]
+    if a.skip_labels:  # memes the editors can't keep (batch1: shrek_side_eye 5% accepted)
+        src = src[~src.frame_label.isin(a.skip_labels.split(","))]
     if a.per_label:  # prototype: a few source frames per label, from all people
         src = src.sample(frac=1, random_state=a.seed).groupby("frame_label").head(a.per_label)
         src = src.sort_values(["frame_label", "frame_id"])
@@ -59,6 +62,45 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     plan.to_csv(out / "plan.csv", index=False)
     print(f"{len(plan)} edits planned from {len(src)} source frames -> {out / 'plan.csv'}")
     print(plan.groupby(["face_attr", "face_value"]).size().to_string())
+    return 0
+
+
+def cmd_retry(cfg, gen_cfg, a) -> int:
+    """Append a new-seed copy of every rejected edit to plan.csv (run `merge` first).
+
+    Rejections depend mostly on the seed, not the source frame (batch1: both variants of a
+    frame fail barely more often than independent tries would), so one retry recovers many.
+    The retry keeps the prompt and attributes, so the appearance mix stays balanced. `edit`
+    then generates only the new rows (it skips syn_ids that already have results). Run `edit`
+    with the same --num-shards as before: each shard resumes from its own results file.
+    """
+    from .prompts import stable_seed
+    _, out = _dirs(cfg, a.name)
+    dt = {"clip_id": str, "person_id": str, "session_id": str}
+    plan = pd.read_csv(out / "plan.csv", dtype=dt)
+    syn = pd.read_csv(out / "synthetic_frames.csv", dtype=dt)
+    syn["accepted"] = syn.accepted.astype(str).str.lower() == "true"
+    if "retry" not in plan.columns:
+        plan["retry"] = 0
+    rnd = int(plan.retry.max()) + 1
+    # retry the latest attempt of each original edit only, and only if it was rejected
+    latest = syn.merge(plan[["syn_id", "retry"]], on="syn_id", suffixes=("_x", ""))
+    latest = latest[latest.retry == rnd - 1]
+    todo = latest[~latest.accepted]
+    if a.labels:
+        todo = todo[todo.label.isin(a.labels.split(","))]
+    if todo.empty:
+        print("nothing to retry")
+        return 0
+    new = plan.set_index("syn_id").loc[todo.syn_id].reset_index()
+    base = new.syn_id.str.replace(r"_r\d+$", "", regex=True)
+    new["syn_id"] = base + f"_r{rnd}"
+    new["retry"] = rnd
+    new["seed"] = [stable_seed(s, a.seed) for s in new.syn_id]
+    new = new[~new.syn_id.isin(plan.syn_id)]
+    pd.concat([plan, new], ignore_index=True).to_csv(out / "plan.csv", index=False)
+    print(f"retry round {rnd}: {len(new)} edits appended to {out / 'plan.csv'}")
+    print(new.label.value_counts().to_string())
     return 0
 
 
@@ -215,7 +257,7 @@ def cmd_merge(cfg, gen_cfg, a) -> int:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["plan", "edit", "merge", "recheck"])
+    ap.add_argument("command", choices=["plan", "edit", "merge", "recheck", "retry"])
     ap.add_argument("--config")
     ap.add_argument("--gen-config")
     ap.add_argument("--name", default="main", help="run name (subfolder of paths.synthetic)")
@@ -225,6 +267,8 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--backend", default="klein4b")
     ap.add_argument("--backend-filter", help="recheck: only this backend's results")
+    ap.add_argument("--labels", help="retry: comma-separated labels to retry (default: all)")
+    ap.add_argument("--skip-labels", help="plan: comma-separated labels to leave out")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--num-shards", type=int, default=1)
@@ -236,7 +280,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     gen_cfg = load_gen_config(a.gen_config)
-    return {"plan": cmd_plan, "edit": cmd_edit, "merge": cmd_merge, "recheck": cmd_recheck}[a.command](cfg, gen_cfg, a)
+    return {"plan": cmd_plan, "edit": cmd_edit, "merge": cmd_merge, "recheck": cmd_recheck,
+            "retry": cmd_retry}[a.command](cfg, gen_cfg, a)
 
 
 if __name__ == "__main__":

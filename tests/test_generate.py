@@ -86,6 +86,50 @@ def test_compare_accepts_identical_and_catches_label_damage(clip):
     assert "skin_tone_not_changed" in m["reasons"]
 
 
+def test_hand_count_and_rule_ratio_checks_ignore_detector_misses(clip):
+    from memepose.generate.checks import _hands_present
+    from memepose.features import compute_features, feature_index
+    img = np.full((720, 1280, 3), 128, np.uint8)
+    row = dict(face_attr="hair")
+    chk = GEN["checks"]
+    fi = feature_index()
+
+    def hand_frame(label):                          # a frame of this clip where a hand is found
+        lm = clip(label)
+        for i in range(60, lm.n_frames):
+            f = one_frame(lm, i)
+            hs = _hands_present(compute_features(f), fi)
+            if hs:
+                return f, hs
+        raise AssertionError(f"no hand in the fake {label} clip")
+
+    for label in ("point_sideways", "arms_raised"):
+        src, _ = hand_frame(label)
+        miss = one_frame(src, 0)
+        miss.hands[0] = np.nan                     # MediaPipe found no hand on the source
+        m = compare(img, miss, img, src, label, row, chk)
+        assert "hand_added" not in m["reasons"]
+    # a second hand appearing on a one-hand meme is still rejected, but not on a two-hand meme
+    for label, rejected in (("point_sideways", True), ("arms_raised", False)):
+        src, hs = hand_frame(label)
+        keep, other = hs[0], 1 - hs[0]
+        if len(hs) < 2:                             # add a second hand, elsewhere in the image
+            src.hands[0, other] = src.hands[0, keep]
+            src.hands[0, other, :, 0] += 0.3
+            src.hand_score[0, other] = src.hand_score[0, keep]
+        one = one_frame(src, 0)
+        one.hands[0, other] = np.nan                # the source shows one hand, the edit two
+        m = compare(img, one, img, src, label, row, chk)
+        assert ("hand_added" in m["reasons"]) == rejected, label
+    # per-label overrides apply to their label only
+    lm = clip("sleepy_squint")
+    src, opened = one_frame(lm, 75), one_frame(lm, 75)
+    opened.blend[0, [C.BS["eyeBlinkLeft"], C.BS["eyeBlinkRight"]]] = 0.0
+    loose = dict(chk, per_label={"sleepy_squint": {"max_key_delta": 2.0}})
+    assert "key_expression_changed" not in compare(img, src, img, opened, "sleepy_squint", row, loose)["reasons"]
+    assert "key_expression_changed" in compare(img, src, img, opened, "sleepy_squint", row, chk)["reasons"]
+
+
 def test_frames_plan_edit_merge(tmp_path):
     from memepose import fake
     from memepose.config import load_config
@@ -116,6 +160,25 @@ def test_frames_plan_edit_merge(tmp_path):
     assert run.main(["merge", *args]) == 0
     out = pd.read_csv(tmp_path / "synthetic/main/synthetic_frames.csv")
     assert len(out) == 2 * len(g) and out.syn_id.is_unique
+    # retry: reject a few edits, get new-seed copies of exactly those, then generate only them
+    part = tmp_path / "synthetic/main/parts/results.stub.shard0.csv"
+    res = pd.read_csv(part)
+    bad = res.syn_id.iloc[:3].tolist()
+    res.loc[res.syn_id.isin(bad), "accepted"] = False
+    res.to_csv(part, index=False)
+    assert run.main(["merge", *args]) == 0
+    assert run.main(["retry", *args]) == 0
+    plan = pd.read_csv(tmp_path / "synthetic/main/plan.csv")
+    r1 = plan[plan.retry == 1]
+    assert sorted(r1.syn_id) == sorted(f"{b}_r1" for b in bad) and plan.syn_id.is_unique
+    old = plan.set_index("syn_id").loc[bad]
+    assert list(r1.prompt) == list(old.prompt) and not set(r1.seed) & set(old.seed)
+    assert run.main(["edit", "--backend", "stub", "--checks", "none", *args]) == 0
+    assert run.main(["merge", *args]) == 0
+    out = pd.read_csv(tmp_path / "synthetic/main/synthetic_frames.csv")
+    assert len(out) == 2 * len(g) + 3
+    assert run.main(["retry", *args]) == 0       # the retries were all accepted: nothing to do
+    assert (pd.read_csv(tmp_path / "synthetic/main/plan.csv").retry <= 1).all()
 
 
 def test_low_memory_two_stage_editor(monkeypatch):
