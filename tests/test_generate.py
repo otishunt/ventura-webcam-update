@@ -179,6 +179,43 @@ def test_frames_plan_edit_merge(tmp_path):
     assert len(out) == 2 * len(g) + 3
     assert run.main(["retry", *args]) == 0       # the retries were all accepted: nothing to do
     assert (pd.read_csv(tmp_path / "synthetic/main/plan.csv").retry <= 1).all()
+    # targeted retry: reject the round-1 copies again, ask for more accepted edits than exist
+    res = pd.read_csv(part)
+    res.loc[res.syn_id.str.endswith("_r1"), "accepted"] = False
+    res.to_csv(part, index=False)
+    assert run.main(["merge", *args]) == 0
+    assert run.main(["retry", "--target-per-label", "1000", "--max-copies", "2", *args]) == 0
+    plan = pd.read_csv(tmp_path / "synthetic/main/plan.csv")
+    r2 = plan[plan.retry == 2]
+    assert sorted(r2.syn_id) == sorted([f"{b}_r2" for b in bad] + [f"{b}_r2c1" for b in bad])
+    assert plan.syn_id.is_unique and plan.seed.is_unique
+
+
+def test_allocate_retries():
+    from memepose.generate.run import allocate_retries
+    rows = []
+    # "hard": 10 frames x 2 variants, only h0_v0 accepted -> far below target
+    for f in range(10):
+        for v in range(2):
+            rows.append(dict(syn_id=f"h{f}_v{v}", label="hard", frame_id=f"h{f}", retry=0,
+                             accepted=f == 0 and v == 0))
+    # "easy": already above target -> no retries
+    for f in range(5):
+        rows.append(dict(syn_id=f"e{f}_v0", label="easy", frame_id=f"e{f}", retry=0, accepted=f < 4))
+    syn = pd.DataFrame(rows)
+    syn["base"] = syn.syn_id
+    todo = syn[~syn.accepted]
+    out = allocate_retries(syn, todo, target=4, max_per_frame=1, factor=0.5, max_copies=3)
+    assert set(out.label) == {"hard"}
+    assert not (out.frame_id == "h0").any()          # h0 already has max_per_frame accepted
+    # p = 1/20 x 0.5, floored at 0.03 -> wanted 100; only 9 frames x 2 edits x 3 copies = 54
+    assert len(out) == 54
+    # the first 9 picks cover every uncovered frame once, before any frame gets a second
+    assert out.frame_id.iloc[:9].nunique() == 9 and (out["copy"].iloc[:18] == 0).all()
+    assert out.groupby(["syn_id", "copy"]).size().max() == 1
+    # a small target takes only the first picks
+    few = allocate_retries(syn, todo, target=2, max_per_frame=1, factor=0.5, max_copies=3)
+    assert len(few) == 34 and few.frame_id.iloc[:9].nunique() == 9
 
 
 def test_low_memory_two_stage_editor(monkeypatch):

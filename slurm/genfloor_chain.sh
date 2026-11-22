@@ -34,7 +34,8 @@ b1c=$(m2 ctl_b1b afterok:$b1m "--synthetic-control --synthetic-images $SYN/batch
 # 3. batch2 (the large run): plan made on the login node beforehand; 16 short shards
 #    (short jobs backfill on the busy queue), merge + one retry round, then syn/ctl
 b2g=$(gen batch2 16 01:30:00)
-b2r=$(cpu memepose-retry 00:30:00 afterany:$b2g "\$G merge --name batch2 && \$G retry --name batch2 --labels $RETRY")
+# targeted retry: copies go to labels short of 400 accepted edits, uncovered frames first
+b2r=$(cpu memepose-retry 00:30:00 afterany:$b2g "\$G merge --name batch2 && \$G retry --name batch2 --labels $RETRY --target-per-label 400 --max-per-frame 5")
 b2g2=$(gen batch2 16 01:00:00 afterok:$b2r)  # same shard count as round 1 (edit resumes per shard file); also finishes any edit a failed first-round shard left
 b2m=$(cpu memepose-merge 00:30:00 afterany:$b2g2 "\$G merge --name batch2")
 b2s=$(m2 syn_b2 afterok:$b2m "--synthetic-images $SYN/batch2/synthetic_frames.csv" 05:00:00)
