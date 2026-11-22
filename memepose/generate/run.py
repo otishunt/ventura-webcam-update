@@ -6,6 +6,7 @@
     python -m memepose.generate.run recheck        # redo the L4 checks on saved edits (CPU only)
     python -m memepose.generate.run retry [--labels a,b]  # new-seed copies of rejected edits -> plan.csv
     python -m memepose.generate.run retry --target-per-label 400 [--max-per-frame 5]  # copies where accepted edits are short
+    python -m memepose.generate.run retry --target-per-label sleepy_squint=500,confused_tilt=500  # only these labels
 
 `plan` assigns balanced attributes (per label) and writes the exact prompt and seed for every
 edit, so runs are reproducible and can be split across GPUs. `edit` is resumable: rerunning
@@ -78,7 +79,8 @@ def cmd_retry(cfg, gen_cfg, a) -> int:
     With --target-per-label N the retries go where accepted edits are short instead: each
     label gets about enough copies to reach N accepted edits (at its expected retry
     acceptance rate), frames without any accepted edit go first, and frames that already
-    have --max-per-frame accepted edits are not retried. See allocate_retries.
+    have --max-per-frame accepted edits are not retried. See allocate_retries. N can also be
+    per label (label=N,...); labels not listed then get no retries.
     """
     from .prompts import stable_seed
     _, out = _dirs(cfg, a.name)
@@ -98,7 +100,7 @@ def cmd_retry(cfg, gen_cfg, a) -> int:
     if a.labels:
         todo = todo[todo.label.isin(a.labels.split(","))]
     if a.target_per_label:
-        todo = allocate_retries(syn, todo, a.target_per_label, a.max_per_frame,
+        todo = allocate_retries(syn, todo, parse_targets(a.target_per_label), a.max_per_frame,
                                 a.retry_factor, a.max_copies)
     else:
         todo = todo.assign(copy=0)
@@ -119,7 +121,15 @@ def cmd_retry(cfg, gen_cfg, a) -> int:
 RETRY_SUFFIX = r"_r\d+(?:c\d+)?$"   # <edit>_r<round>[c<copy>]
 
 
-def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int, max_per_frame: int | None,
+def parse_targets(spec: str) -> int | dict[str, int]:
+    """'400' -> 400 (every label); 'a=500,b=300' -> {'a': 500, 'b': 300} (other labels: 0)."""
+    if "=" not in spec:
+        return int(spec)
+    return {k.strip(): int(v) for k, v in (x.split("=") for x in spec.split(",") if x.strip())}
+
+
+def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int | dict[str, int],
+                     max_per_frame: int | None,
                      factor: float, max_copies: int) -> pd.DataFrame:
     """Choose which rejected edits to retry, and how many new-seed copies of each.
 
@@ -130,7 +140,8 @@ def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int, max_per
     - expected acceptance p: the label's acceptance on earlier retries (if at least 30), else
       its first-try acceptance x `factor`; batch1b retries were accepted 0.5-0.8x as often as
       first tries, so rejections depend partly on the frame, not only the seed
-    - copies needed: (target - accepted so far) / p, rounded up; none when the label is at target
+    - copies needed: (target - accepted so far) / p, rounded up; none when the label is at target.
+      target is one number for every label, or a dict per label (labels missing from it: 0)
     - order: first copies before second copies, each frame's first rejected edit before its
       second, frames with fewer accepted edits first; so uncovered frames get retried first
       and the copies spread over frames instead of piling onto a few
@@ -150,7 +161,8 @@ def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int, max_per
             p = mine[mine.retry == 0].accepted.mean() * factor
         p = float(np.clip(np.nan_to_num(p), 0.03, 1.0))
         have = int(n_acc.get(label, 0))
-        need = int(np.ceil(max(0, target - have) / p))
+        tgt = target.get(label, 0) if isinstance(target, dict) else target
+        need = int(np.ceil(max(0, tgt - have) / p))
         g = g.assign(facc=g.frame_id.map(frame_acc).fillna(0).astype(int))
         if max_per_frame:
             g = g[g.facc < max_per_frame]
@@ -162,7 +174,7 @@ def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int, max_per
             x = x[x.groupby("frame_id").cumcount() < cap]
         x = x.head(need)
         picked.append(x)
-        report.append(dict(label=label, accepted=have, target=target, p_retry=round(p, 2),
+        report.append(dict(label=label, accepted=have, target=tgt, p_retry=round(p, 2),
                            wanted=need, queued=len(x), frames=x.frame_id.nunique(),
                            uncovered_frames=int(x.loc[x.facc == 0, "frame_id"].nunique())))
     print("retry allocation:\n" + pd.DataFrame(report).to_string(index=False))
@@ -335,8 +347,9 @@ def main(argv=None):
     ap.add_argument("--backend", default="klein4b")
     ap.add_argument("--backend-filter", help="recheck: only this backend's results")
     ap.add_argument("--labels", help="retry: comma-separated labels to retry (default: all)")
-    ap.add_argument("--target-per-label", type=int,
-                    help="retry: queue enough copies for each label to reach N accepted edits")
+    ap.add_argument("--target-per-label",
+                    help="retry: queue enough copies for each label to reach N accepted edits; "
+                         "N, or label=N,... (labels not listed: no retries)")
     ap.add_argument("--max-per-frame", type=int, default=5,
                     help="retry with a target: skip frames that already have N accepted edits")
     ap.add_argument("--max-copies", type=int, default=3,

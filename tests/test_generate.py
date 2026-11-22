@@ -216,6 +216,14 @@ def test_allocate_retries():
     # a small target takes only the first picks
     few = allocate_retries(syn, todo, target=2, max_per_frame=1, factor=0.5, max_copies=3)
     assert len(few) == 34 and few.frame_id.iloc[:9].nunique() == 9
+    # per-label targets: labels not listed get no retries
+    from memepose.generate.run import parse_targets
+    assert parse_targets("400") == 400
+    assert parse_targets("hard=2, easy=9") == {"hard": 2, "easy": 9}
+    easy = syn[syn.label == "easy"]                   # one rejected edit, e4_v0
+    both = pd.concat([todo, easy[~easy.accepted]]).drop_duplicates("syn_id")
+    only = allocate_retries(syn, both, {"easy": 9}, max_per_frame=1, factor=0.5, max_copies=3)
+    assert set(only.label) == {"easy"} and len(only) == 3
 
 
 def test_low_memory_two_stage_editor(monkeypatch):
