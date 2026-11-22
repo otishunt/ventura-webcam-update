@@ -9,7 +9,10 @@ frames:
   free_train_every: 6      # free-behavior clips are long; sample them more sparsely
   train_size: 256          # px, square crops for M2 training
   gen_size: 768            # px, square crops used as generation sources
-  meme_peaks: [0.25, 0.5, 0.75]   # positions inside the refined pose interval
+  # positions inside the refined pose interval. batch1 used [0.25, 0.5, 0.75] and used every
+  # source frame; 7 points give ~2.3x the source frames and keep those 3 (frame IDs are
+  # <clip>_f<index>, so batch1's frames keep their IDs after a re-export).
+  meme_peaks: [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]
   meme_neutral: 1          # neutral (no_meme) frames per meme clip, from before the pose
   negative_peaks: 3        # highest-motion frames per negative clip
   free_sources: 30         # evenly spaced frames per free-behavior clip
@@ -107,7 +110,10 @@ checks:                    # L4 thresholds; starting guesses, calibrate on the p
   min_rule_ratio: 0.6      # M0 rule score of the label after/before (meme frames only)
   max_hand_shape_delta: 0.35   # wrist-relative finger positions, palm-length units
   hand_match_dist: 0.12        # hands are paired by wrist position (fraction of the image), not left/right slot
-  reject_extra_hands: true     # an edit that shows more hands than its source is rejected (hand_added)
+  reject_extra_hands: true     # an edit that shows more hands than its source is rejected (hand_added),
+                               # unless the source showed no hand or the meme uses both hands:
+  two_hand_memes: [arms_raised, hands_on_head, timeout]
+  min_rule_src: 0.3        # min_rule_ratio applies only when the source rule score is at least this
   max_pose_delta: 0.25     # shoulder/elbow/wrist positions, shoulder-width units
   skin_min_ita_shift: 8    # degrees the skin must move toward the target ITA range
   hand_memes: [point_at_self, pinch_grin, timeout, hands_on_head, point_sideways, arms_raised, pure_cinema]
@@ -122,3 +128,7 @@ checks:                    # L4 thresholds; starting guesses, calibrate on the p
     hands_on_head: [jawOpen, eyeWideLeft, eyeWideRight]
     point_at_self: [browInnerUp, eyeWideLeft, eyeWideRight]
     pure_cinema: [mouthPressLeft, mouthPressRight]
+  # Per-label overrides of any setting above, e.g. {confused_tilt: {max_key_delta: 0.32}}.
+  # Set from `python -m memepose.generate.calibrate`: how much each measure varies between
+  # real frames of the same held meme (same clip), so a check is not stricter than the data.
+  per_label: {}

@@ -1,9 +1,11 @@
 """Plan, run and summarize synthetic frame generation.
 
-    python -m memepose.generate.run plan  [--variants 5] [--per-label 2] [--no-feature-prompt] [--name NAME]
+    python -m memepose.generate.run plan  [--variants 5] [--per-label 2] [--skip-labels a,b] [--no-feature-prompt] [--name NAME]
     python -m memepose.generate.run edit  --backend klein4b [--limit 20] [--shard 0 --num-shards 4]
     python -m memepose.generate.run merge          # -> synthetic_frames.csv + acceptance tables
     python -m memepose.generate.run recheck        # redo the L4 checks on saved edits (CPU only)
+    python -m memepose.generate.run retry [--labels a,b]  # new-seed copies of rejected edits -> plan.csv
+    python -m memepose.generate.run retry --target-per-label 400 [--max-per-frame 5]  # copies where accepted edits are short
 
 `plan` assigns balanced attributes (per label) and writes the exact prompt and seed for every
 edit, so runs are reproducible and can be split across GPUs. `edit` is resumable: rerunning
@@ -43,6 +45,8 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     crops, out = _dirs(cfg, a.name)
     frames = pd.read_csv(crops / "frames.csv", dtype={"clip_id": str, "person_id": str, "session_id": str})
     src = frames[(frames.gen_path.fillna("") != "") & (~frames.heldout.astype(bool))]
+    if a.skip_labels:  # memes the editors can't keep (batch1: shrek_side_eye 5% accepted)
+        src = src[~src.frame_label.isin(a.skip_labels.split(","))]
     if a.per_label:  # prototype: a few source frames per label, from all people
         src = src.sample(frac=1, random_state=a.seed).groupby("frame_label").head(a.per_label)
         src = src.sort_values(["frame_label", "frame_id"])
@@ -60,6 +64,111 @@ def cmd_plan(cfg, gen_cfg, a) -> int:
     print(f"{len(plan)} edits planned from {len(src)} source frames -> {out / 'plan.csv'}")
     print(plan.groupby(["face_attr", "face_value"]).size().to_string())
     return 0
+
+
+def cmd_retry(cfg, gen_cfg, a) -> int:
+    """Append a new-seed copy of every rejected edit to plan.csv (run `merge` first).
+
+    Rejections depend mostly on the seed, not the source frame (batch1: both variants of a
+    frame fail barely more often than independent tries would), so one retry recovers many.
+    The retry keeps the prompt and attributes, so the appearance mix stays balanced. `edit`
+    then generates only the new rows (it skips syn_ids that already have results). Run `edit`
+    with the same --num-shards as before: each shard resumes from its own results file.
+
+    With --target-per-label N the retries go where accepted edits are short instead: each
+    label gets about enough copies to reach N accepted edits (at its expected retry
+    acceptance rate), frames without any accepted edit go first, and frames that already
+    have --max-per-frame accepted edits are not retried. See allocate_retries.
+    """
+    from .prompts import stable_seed
+    _, out = _dirs(cfg, a.name)
+    dt = {"clip_id": str, "person_id": str, "session_id": str}
+    plan = pd.read_csv(out / "plan.csv", dtype=dt)
+    syn = pd.read_csv(out / "synthetic_frames.csv", dtype=dt)
+    syn["accepted"] = syn.accepted.astype(str).str.lower() == "true"
+    if "retry" not in plan.columns:
+        plan["retry"] = 0
+    rnd = int(plan.retry.max()) + 1
+    syn = syn.drop(columns="retry", errors="ignore").merge(plan[["syn_id", "retry"]], on="syn_id")
+    syn["base"] = syn.syn_id.str.replace(RETRY_SUFFIX, "", regex=True)
+    # retry the latest attempt of each original edit only, and only if no copy of it was accepted
+    latest = syn[syn.retry == rnd - 1]
+    done = set(latest.base[latest.accepted])
+    todo = latest[~latest.accepted & ~latest.base.isin(done)].drop_duplicates("base")
+    if a.labels:
+        todo = todo[todo.label.isin(a.labels.split(","))]
+    if a.target_per_label:
+        todo = allocate_retries(syn, todo, a.target_per_label, a.max_per_frame,
+                                a.retry_factor, a.max_copies)
+    else:
+        todo = todo.assign(copy=0)
+    if todo.empty:
+        print("nothing to retry")
+        return 0
+    new = plan.set_index("syn_id").loc[todo.syn_id].reset_index()
+    new["syn_id"] = [f"{b}_r{rnd}" + (f"c{k}" if k else "") for b, k in zip(todo.base, todo["copy"])]
+    new["retry"] = rnd
+    new["seed"] = [stable_seed(s, a.seed) for s in new.syn_id]
+    new = new[~new.syn_id.isin(plan.syn_id)]
+    pd.concat([plan, new], ignore_index=True).to_csv(out / "plan.csv", index=False)
+    print(f"retry round {rnd}: {len(new)} edits appended to {out / 'plan.csv'}")
+    print(new.label.value_counts().to_string())
+    return 0
+
+
+RETRY_SUFFIX = r"_r\d+(?:c\d+)?$"   # <edit>_r<round>[c<copy>]
+
+
+def allocate_retries(syn: pd.DataFrame, todo: pd.DataFrame, target: int, max_per_frame: int | None,
+                     factor: float, max_copies: int) -> pd.DataFrame:
+    """Choose which rejected edits to retry, and how many new-seed copies of each.
+
+    syn: every result so far (accepted, label, frame_id, retry); todo: the retryable rejected
+    edits (one row per original edit). Returns todo rows repeated once per copy, with a
+    `copy` column (0, 1, ...). Per label:
+
+    - expected acceptance p: the label's acceptance on earlier retries (if at least 30), else
+      its first-try acceptance x `factor`; batch1b retries were accepted 0.5-0.8x as often as
+      first tries, so rejections depend partly on the frame, not only the seed
+    - copies needed: (target - accepted so far) / p, rounded up; none when the label is at target
+    - order: first copies before second copies, each frame's first rejected edit before its
+      second, frames with fewer accepted edits first; so uncovered frames get retried first
+      and the copies spread over frames instead of piling onto a few
+    - frames that already have max_per_frame accepted edits are skipped, and the rest get no
+      more copies than ceil((max_per_frame - accepted) / p)
+    """
+    acc = syn[syn.accepted]
+    n_acc = acc.label.value_counts()
+    frame_acc = acc.frame_id.value_counts()
+    picked, report = [], []
+    for label, g in todo.groupby("label"):
+        mine = syn[syn.label == label]
+        retried = mine[mine.retry > 0]
+        if len(retried) >= 30:
+            p = retried.accepted.mean()
+        else:
+            p = mine[mine.retry == 0].accepted.mean() * factor
+        p = float(np.clip(np.nan_to_num(p), 0.03, 1.0))
+        have = int(n_acc.get(label, 0))
+        need = int(np.ceil(max(0, target - have) / p))
+        g = g.assign(facc=g.frame_id.map(frame_acc).fillna(0).astype(int))
+        if max_per_frame:
+            g = g[g.facc < max_per_frame]
+        g = g.sort_values("syn_id").assign(j=lambda d: d.groupby("frame_id").cumcount())
+        x = pd.concat([g.assign(copy=k) for k in range(max_copies)], ignore_index=True)
+        x = x.sort_values(["copy", "j", "facc", "frame_id"], kind="stable")
+        if max_per_frame:
+            cap = np.ceil((max_per_frame - x.facc) / p)
+            x = x[x.groupby("frame_id").cumcount() < cap]
+        x = x.head(need)
+        picked.append(x)
+        report.append(dict(label=label, accepted=have, target=target, p_retry=round(p, 2),
+                           wanted=need, queued=len(x), frames=x.frame_id.nunique(),
+                           uncovered_frames=int(x.loc[x.facc == 0, "frame_id"].nunique())))
+    print("retry allocation:\n" + pd.DataFrame(report).to_string(index=False))
+    if not picked:
+        return todo.assign(copy=0).iloc[:0]
+    return pd.concat(picked, ignore_index=True).drop(columns=["facc", "j"])
 
 
 def cmd_edit(cfg, gen_cfg, a) -> int:
@@ -215,7 +324,7 @@ def cmd_merge(cfg, gen_cfg, a) -> int:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["plan", "edit", "merge", "recheck"])
+    ap.add_argument("command", choices=["plan", "edit", "merge", "recheck", "retry"])
     ap.add_argument("--config")
     ap.add_argument("--gen-config")
     ap.add_argument("--name", default="main", help="run name (subfolder of paths.synthetic)")
@@ -225,6 +334,16 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--backend", default="klein4b")
     ap.add_argument("--backend-filter", help="recheck: only this backend's results")
+    ap.add_argument("--labels", help="retry: comma-separated labels to retry (default: all)")
+    ap.add_argument("--target-per-label", type=int,
+                    help="retry: queue enough copies for each label to reach N accepted edits")
+    ap.add_argument("--max-per-frame", type=int, default=5,
+                    help="retry with a target: skip frames that already have N accepted edits")
+    ap.add_argument("--max-copies", type=int, default=3,
+                    help="retry with a target: at most N new-seed copies of one rejected edit")
+    ap.add_argument("--retry-factor", type=float, default=0.65,
+                    help="retry with a target: retry acceptance / first-try acceptance (batch1b: ~0.65)")
+    ap.add_argument("--skip-labels", help="plan: comma-separated labels to leave out")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--num-shards", type=int, default=1)
@@ -236,7 +355,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     cfg = load_config(a.config, parse_overrides(a.set))
     gen_cfg = load_gen_config(a.gen_config)
-    return {"plan": cmd_plan, "edit": cmd_edit, "merge": cmd_merge, "recheck": cmd_recheck}[a.command](cfg, gen_cfg, a)
+    return {"plan": cmd_plan, "edit": cmd_edit, "merge": cmd_merge, "recheck": cmd_recheck,
+            "retry": cmd_retry}[a.command](cfg, gen_cfg, a)
 
 
 if __name__ == "__main__":
