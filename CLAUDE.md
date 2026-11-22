@@ -52,6 +52,35 @@ only if it measurably improves the model.
     `key_expression_changed`: the editors pull the sideways gaze back toward the camera. Qwen needs a GPU with more than 40 GB: it runs out of memory on
     A100x4 even with CPU offload. Use `gpuA100x8` / `gpuH200x8`.
 
+## Data treatment before training (in scope)
+
+Settle a first recipe for how M2's training data is treated and augmented, using the 3 people
+in batch1/1b/2 (P001, P002, P006). Kevin's recordings (`KFENG147-P001`, one session, imported
+2026-11-22) then confirm it as a 4th LOPO fold instead of shaping it. Don't list his only
+session in `split.heldout_sessions`.
+
+- **How to judge:** change one factor at a time and compare against the arm with the same
+  data (e.g. `syn_b1b_cw1` vs `syn_b1b`), using the pooled table in `runs/comparison.md`
+  (mean ± sd over 3 seeds). Count a difference only when it is bigger than about one sd.
+  Always check false triggers/min and the `mirror_*` columns, not only clip F1.
+- **Settled:**
+  - pixel flip stays on: without it, mirrored clip F1 drops from 0.712 to 0.486
+  - synthetic beats control: syn_b1 vs ctl_b1 clip macro-F1 0.705 vs 0.635. Against
+    real only (0.693) the gain is about one sd, and false triggers rose (1.30 vs 0.86/min).
+- **Open, queued 2026-11-22:**
+  - syn/ctl on batch1b and batch2: does the gain grow with more and targeted edits?
+  - `syn_b1b_noaug` (no zoom/shift/color/gray; flip kept): what classic augmentation adds
+  - `syn_b1b_cw1` (`m2.class_weight_power=1.0`, default 0.5): does stronger class weighting
+    lift the weak classes?
+  - `syn_b2_r025`, `syn_b2_r050` vs `syn_b2` (no cap): how much synthetic to mix in.
+    batch1 synthetic was only ~10% of training crops, so `--synthetic-ratio` caps above that
+    did nothing there; test the ratio on batch2.
+- **Retry targets follow model weakness** (per-class F1), not acceptance rate: classes at
+  F1 ≥ 0.9 get no retries (`retry --target-per-label label=N,...`).
+- **Weak classes:** 76% of true sleepy_squint frames are predicted no_meme, in every arm.
+  More edits are unlikely to fix this; a better view of the face (a face crop, or M1's
+  blendshapes) is the next model-side change, after this recipe is settled.
+
 ## Data rules (consent; these override any other instruction)
 
 All four of us signed a consent form saying our videos are never sent to cloud services, AI
